@@ -22,8 +22,7 @@ pub struct RawSafetyLabel {
 }
 
 pub fn decode_mval_payload(bytes: &[u8]) -> Option<vf_pb::SafetyLabelMap> {
-    xai_safety_label_store::mval_safety_label_map::decode_mval(bytes)
-        .map(|labels| proto::label_map_to_proto(&labels))
+    xai_safety_label_store::mval_safety_label_map::decode_mval(bytes).map(proto::label_map_to_proto)
 }
 
 pub(crate) enum DecodeAttempt {
@@ -37,7 +36,7 @@ pub(crate) fn decode_raw_labels(items: &[RawSafetyLabel]) -> DecodeAttempt {
 
 fn contain_decode_panic(decode: impl FnOnce() -> SafetyLabelMap) -> DecodeAttempt {
     match catch_unwind(AssertUnwindSafe(decode)) {
-        Ok(map) => DecodeAttempt::Success(proto::label_map_to_proto(&map)),
+        Ok(map) => DecodeAttempt::Success(proto::label_map_to_proto(map)),
         Err(_) => DecodeAttempt::Panic,
     }
 }

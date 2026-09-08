@@ -330,7 +330,14 @@ impl PhoenixCandidatePipeline {
                 socialgraph_client: socialgraph_client.clone(),
             }),
             Box::new(core_data_hydrator),
-            Box::new(QuoteHydrator::new(tes_client.clone(), socialgraph_client.clone()).await),
+            Box::new(
+                QuoteHydrator::new(
+                    tes_client.clone(),
+                    socialgraph_client.clone(),
+                    media_info_cache_client.clone(),
+                )
+                .await,
+            ),
             Box::new(MediaInfoHydrator::new(media_info_cache_client).await),
             Box::new(SubscriptionHydrator::new(tes_client.clone()).await),
             Box::new(GizmoduckCandidateHydrator::new(gizmoduck_client).await),

@@ -136,12 +136,57 @@ def _to_shape_dtype_struct(tree: Any) -> Any:
     )
 
 
+def _serving_sequence_len(
+    *,
+    training_seq_len: int,
+    training_history_seq_len: int,
+    training_candidate_seq_len: int,
+    num_negatives_per_example: int,
+    num_global_negatives_per_example: int,
+    num_user_prefix_tokens: int,
+    history_seq_len: int,
+    candidate_seq_len: int,
+) -> int:
+    prefix_tokens = (
+        training_seq_len
+        - training_history_seq_len
+        - training_candidate_seq_len * (1 + num_negatives_per_example)
+        - num_global_negatives_per_example
+    )
+    if prefix_tokens != num_user_prefix_tokens:
+        raise ValueError(
+            f"cannot derive the serving sequence_len: training sequence_len "
+            f"{training_seq_len} - (history {training_history_seq_len} + candidate "
+            f"{training_candidate_seq_len} * (1 + {num_negatives_per_example} negatives) "
+            f"+ {num_global_negatives_per_example} global negatives) = {prefix_tokens} "
+            f"prefix tokens, but the model reserves num_user_prefix_tokens="
+            f"{num_user_prefix_tokens}; this config's sequence_len does not follow the "
+            "prefix + history + candidates construction, so the export cannot size the "
+            "attention kernel for serving"
+        )
+    return prefix_tokens + history_seq_len + candidate_seq_len
+
+
 def _make_export_config(trainer: RecsysTrainer, history_seq_len: int, candidate_seq_len: int):
     from xrex.configs.config_loader import replace_cli_subs
 
     init_params = trainer.to_dict()
     init_params.pop("__class")
     export_cfg = type(trainer).from_dict(init_params, ensure_class=type(trainer))
+
+    dataset = trainer.dataset
+    serving_seq_len = _serving_sequence_len(
+        training_seq_len=int(trainer.model_config.model_config.sequence_len),
+        training_history_seq_len=int(dataset.history_seq_len),
+        training_candidate_seq_len=int(dataset.candidate_seq_len),
+        num_negatives_per_example=int(getattr(dataset, "num_negatives_per_example", 0)),
+        num_global_negatives_per_example=int(
+            getattr(dataset, "num_global_negatives_per_example", 0)
+        ),
+        num_user_prefix_tokens=int(trainer.model_config.num_user_prefix_tokens),
+        history_seq_len=history_seq_len,
+        candidate_seq_len=candidate_seq_len,
+    )
 
     overrides = [
         "num_devices_per_process=1",
@@ -151,6 +196,8 @@ def _make_export_config(trainer: RecsysTrainer, history_seq_len: int, candidate_
         "num_global_negatives_per_example=0",
         f"history_seq_len={history_seq_len}",
         f"candidate_seq_len={candidate_seq_len}",
+        f"model_config.model_config.sequence_len={serving_seq_len}",
+        f"model_config.model_config.attn_config.sequence_len={serving_seq_len}",
     ]
     export_cfg, used = replace_cli_subs(export_cfg, overrides)
     unused = [k for k, v in used.items() if not v]
@@ -614,6 +661,7 @@ def _build_manifest(
         "name": trainer.name,
         "model_config_class": type(trainer.model_config).__name__,
         "created_timestamp": time.time(),
+        "model_sequence_len": int(model_config.model_config.sequence_len),
         "jax_version": jax.__version__,
         "jaxlib_version": jaxlib.__version__,
         "platforms": ["cuda"],

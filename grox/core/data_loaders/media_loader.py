@@ -466,6 +466,7 @@ class MediaLoader:
                 is_high_fav,
                 enable_clahe_enhancement,
                 enable_motion_reveal,
+                max_duration=video.crop_seconds,
             )
             Metrics.counter("media_loader.hydrate_video_success.count").add(
                 1, attributes=cls._metrics_attributes()
@@ -536,6 +537,7 @@ class MediaLoader:
         is_high_fav: bool = False,
         enable_clahe_enhancement: bool = False,
         enable_motion_reveal: bool = False,
+        max_duration: float | None = None,
     ) -> ConvoVideo:
         video_max_frames = grox_config.media_hydration.video_max_frames_light
         video_tile_size = grox_config.media_hydration.video_tile_size
@@ -555,6 +557,7 @@ class MediaLoader:
             enable_clahe=enable_clahe_enhancement,
             include_combined_video_bytes=False,
             enable_motion_reveal=enable_motion_reveal,
+            max_duration=max_duration,
         )
         times = [frame.time_sec for frame in video_data.frames]
         frames = [frame.frame for frame in video_data.frames]
@@ -565,7 +568,9 @@ class MediaLoader:
             total_duration = times[-1] if times else duration
         if subtitles:
             try:
-                subtitles = SubtitleAligner(subtitles).align(times)
+                subtitles = SubtitleAligner(subtitles).align(
+                    times, max_time=max_duration
+                )
             except Exception:
                 logger.warning(
                     f"failed to align video subtitles, error: {traceback.format_exc()}"

@@ -11,6 +11,7 @@ from grox.flows.mm_emb.constants import (
     TOPIC_EMBEDDING_V5,
     TOPIC_EMBEDDING_V5_ALL,
     TOPIC_EMBEDDING_V8_2,
+    TOPIC_EMBEDDING_V8_SEARCH,
 )
 
 logger = logging.getLogger(__name__)
@@ -57,3 +58,7 @@ class TaskPublishEmbeddingV5AllKafka(TaskPublishEmbeddingMultiRegionKafka):
 
 class TaskPublishEmbeddingV82Kafka(TaskPublishEmbeddingMultiRegionKafka):
     KAFKA_TOPIC_NAME = TOPIC_EMBEDDING_V8_2
+
+
+class TaskPublishEmbeddingV8SearchKafka(TaskPublishEmbeddingMultiRegionKafka):
+    KAFKA_TOPIC_NAME = TOPIC_EMBEDDING_V8_SEARCH

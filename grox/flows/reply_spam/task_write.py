@@ -22,7 +22,6 @@ from grox.core.data_loaders.data_types import (
 from grox.core.data_loaders.strato_loader import UserStratoLoader
 from strato_http.queries.data_types import (
     ReplyRankingScore,
-    ReplyRankingScoreKafka,
 )
 from grox.flows.reply_spam.strato_loader import ReplyRankingScoreStratoLoader
 
@@ -129,14 +128,7 @@ class TaskWriteReplyRankingManhattan(Task):
         if score == 0.0:
             await _apply_reply_spam_label(post.id, post.user.id if post.user else None)
 
-        await ReplyRankingScoreStratoLoader.save_reply_ranking_kafka_v2(
-            post_id=post.id,
-            reply_ranking_score_kafka=ReplyRankingScoreKafka(
-                postId=int(post.id), score=score, reasoning=reasoning[-500:]
-            ),
-        )
-
-        await ReplyRankingScoreStratoLoader.save_reply_ranking_score(
+        await ReplyRankingScoreStratoLoader.publish_reply_ranking_score(
             post_id=post.id,
             reply_ranking_score=ReplyRankingScore(
                 score=score, reasoning=reasoning[-500:]
@@ -191,17 +183,10 @@ class TaskWriteCoordinatedSpamReplyRanking(Task):
     async def _mark_spam(cls, post_id: str, author_id: int, reasoning: str) -> None:
         await _apply_reply_spam_label(post_id, author_id)
 
-        await ReplyRankingScoreStratoLoader.save_reply_ranking_score(
+        await ReplyRankingScoreStratoLoader.publish_reply_ranking_score(
             post_id=post_id,
             reply_ranking_score=ReplyRankingScore(
                 score=0.0, reasoning=reasoning[-500:]
-            ),
-        )
-
-        await ReplyRankingScoreStratoLoader.save_reply_ranking_kafka_v2(
-            post_id=post_id,
-            reply_ranking_score_kafka=ReplyRankingScoreKafka(
-                postId=int(post_id), score=0.0, reasoning=reasoning
             ),
         )
         logger.info(

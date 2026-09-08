@@ -221,6 +221,7 @@ class Video(BaseModel):
     videoInfo: VideoInfo | None = None
     animatedGifInfo: VideoInfo | None = None
     convo_video: ConvoVideo | None = None
+    crop_seconds: float | None = None
 
     @classmethod
     def from_thrift_model(cls, media_entity: t.MediaEntity) -> "Video":

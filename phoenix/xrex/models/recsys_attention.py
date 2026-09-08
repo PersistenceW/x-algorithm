@@ -206,8 +206,8 @@ class CutedslRankerAttention(CustomAttention):
         from xrex.utils.gpu import GpuArch, gpu_arch
 
         arch = gpu_arch()
-        assert arch in (GpuArch.GB200, GpuArch.GB300), (
-            f"CuTeDSL FA4 requires GB200 or GB300 (got {arch})"
+        assert arch in (GpuArch.A100, GpuArch.H100, GpuArch.GB200, GpuArch.GB300), (
+            f"CuTeDSL ranker attention requires A100, H100, GB200 or GB300 (got {arch})"
         )
         config = self.config
         sm_scale = self.scale_config.attn_output_scale(self.config.key_size)
@@ -253,8 +253,8 @@ class CutedslRankerVarlenAttention(CustomAttention):
         from xrex.utils.gpu import GpuArch, gpu_arch
 
         arch = gpu_arch()
-        assert arch in (GpuArch.GB200, GpuArch.GB300), (
-            f"CuTeDSL FA4 requires GB200 or GB300 (got {arch})"
+        assert arch in (GpuArch.H100, GpuArch.GB200, GpuArch.GB300), (
+            f"CuTeDSL ranker varlen attention requires H100, GB200 or GB300 (got {arch})"
         )
         sm_scale = self.scale_config.attn_output_scale(self.config.key_size)
 

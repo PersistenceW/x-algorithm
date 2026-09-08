@@ -5,7 +5,7 @@ from grox.core.data_loaders.data_types import Post
 from grox.core.schedules.types import TaskContext
 from grox.core.tasks.task import Task, TaskResultCategory, TaskWithPost
 from grox.flows.ptos.classifier import SafetyPtosAdultContentCrossValidationJudge
-from grox.flows.ptos.constants import DELUXE_TIER_TASK_TYPES, SAFETY_PTOS_SPECIAL_VIDEO
+from grox.flows.ptos.constants import DELUXE_TIER_TASK_TYPES, SPECIAL_VIDEO_TASK_TYPES
 from grox.flows.ptos.state import (
     SafetyPolicy,
     SafetyPolicyCategory,
@@ -105,7 +105,7 @@ class TaskSafetyPtosAdultContentCrossValidation(TaskWithPost):
             judged = await cls._judge.judge(post)
         except Exception as e:
             Metrics.counter(metric).add(1, attributes={"outcome": "error"})
-            if ctx.payload.task_type == SAFETY_PTOS_SPECIAL_VIDEO:
+            if ctx.payload.task_type in SPECIAL_VIDEO_TASK_TYPES:
                 logger.warning(
                     f"Post {post.id}: grok 4.5 cross validation failed, failing closed to Soft: {e}"
                 )

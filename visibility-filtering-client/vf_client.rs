@@ -394,6 +394,48 @@ impl FilterTweetsClientMetrics {
     }
 }
 
+enum FilterTweetsRequestStatus {
+    Completed,
+    Degraded,
+    Cancelled,
+}
+
+struct FilterTweetsRequestMetricsGuard {
+    receiver: Option<Arc<dyn xai_stats_receiver::StatsReceiverExt>>,
+    status: FilterTweetsRequestStatus,
+}
+
+impl FilterTweetsRequestMetricsGuard {
+    fn new() -> Self {
+        Self {
+            receiver: global_stats_receiver(),
+            status: FilterTweetsRequestStatus::Cancelled,
+        }
+    }
+
+    fn mark_completed(&mut self, metrics: &FilterTweetsClientMetrics) {
+        self.status = if metrics.failed_ids > 0 {
+            FilterTweetsRequestStatus::Degraded
+        } else {
+            FilterTweetsRequestStatus::Completed
+        };
+    }
+}
+
+impl Drop for FilterTweetsRequestMetricsGuard {
+    fn drop(&mut self) {
+        let Some(sr) = &self.receiver else {
+            return;
+        };
+        let status = match self.status {
+            FilterTweetsRequestStatus::Completed => "completed",
+            FilterTweetsRequestStatus::Degraded => "degraded",
+            FilterTweetsRequestStatus::Cancelled => "cancelled",
+        };
+        sr.incr("vf_client_filter_tweets", &[("requests", status)], 1);
+    }
+}
+
 fn emit_filter_tweets_client_metrics(latency_ms: f64, metrics: &FilterTweetsClientMetrics) {
     let Some(sr) = global_stats_receiver() else {
         return;
@@ -430,6 +472,7 @@ impl VfClient for XaiVfClient {
         }
 
         let start = Instant::now();
+        let mut request_guard = FilterTweetsRequestMetricsGuard::new();
         let country_code = context
             .map(|v| v.request_country_code)
             .filter(|c| !c.is_empty());
@@ -483,6 +526,7 @@ impl VfClient for XaiVfClient {
             out.extend(chunk_map);
         }
 
+        request_guard.mark_completed(&metrics);
         emit_filter_tweets_client_metrics(start.elapsed().as_secs_f64() * 1000.0, &metrics);
         out
     }
@@ -601,6 +645,81 @@ mod rust_vf_tests {
         let metrics = FilterTweetsClientMetrics::default();
         assert!(metrics.error_codes.is_empty());
         assert_eq!(metrics.failed_ids, 0);
+    }
+
+    #[derive(Default)]
+    struct RecordingReceiver {
+        counters: std::sync::Mutex<HashMap<String, u64>>,
+    }
+
+    impl RecordingReceiver {
+        fn counter(&self, key: &str) -> u64 {
+            *self.counters.lock().unwrap().get(key).unwrap_or(&0)
+        }
+    }
+
+    impl xai_stats_receiver::StatsReceiverExt for RecordingReceiver {
+        fn incr(&self, name: &str, scopes: &[(&str, &str)], value: u64) {
+            let mut key = name.to_string();
+            for (k, v) in scopes {
+                key.push('|');
+                key.push_str(k);
+                key.push('=');
+                key.push_str(v);
+            }
+            *self.counters.lock().unwrap().entry(key).or_default() += value;
+        }
+        fn observe(
+            &self,
+            _: &str,
+            _: &[(&str, &str)],
+            _: f64,
+            _: xai_stats_receiver::HistogramBuckets,
+        ) {
+        }
+        fn observe_expo(&self, _: &str, _: &[(&str, &str)], _: f64) {}
+        fn observe_vm(&self, _: &str, _: &[(&str, &str)], _: f64) {}
+        fn gauge(&self, _: &str, _: &[(&str, &str)], _: f64) {}
+    }
+
+    fn request_guard_with(receiver: Arc<RecordingReceiver>) -> FilterTweetsRequestMetricsGuard {
+        FilterTweetsRequestMetricsGuard {
+            receiver: Some(receiver),
+            status: FilterTweetsRequestStatus::Cancelled,
+        }
+    }
+
+    #[test]
+    fn request_guard_counts_completed_or_degraded_by_failed_chunks() {
+        let sr = Arc::new(RecordingReceiver::default());
+        {
+            let mut guard = request_guard_with(sr.clone());
+            guard.mark_completed(&FilterTweetsClientMetrics::default());
+        }
+        {
+            let mut metrics = FilterTweetsClientMetrics::default();
+            metrics.record_failed_chunk("unavailable", 50);
+            let mut guard = request_guard_with(sr.clone());
+            guard.mark_completed(&metrics);
+        }
+        assert_eq!(sr.counter("vf_client_filter_tweets|requests=completed"), 1);
+        assert_eq!(sr.counter("vf_client_filter_tweets|requests=degraded"), 1);
+        assert_eq!(sr.counter("vf_client_filter_tweets|requests=cancelled"), 0);
+    }
+
+    #[tokio::test]
+    async fn request_guard_counts_cancelled_when_future_dropped_mid_flight() {
+        let sr = Arc::new(RecordingReceiver::default());
+        let mut fut = Box::pin(async {
+            let mut guard = request_guard_with(sr.clone());
+            std::future::pending::<()>().await;
+            guard.mark_completed(&FilterTweetsClientMetrics::default());
+        });
+        assert!(futures::poll!(fut.as_mut()).is_pending());
+        drop(fut);
+        assert_eq!(sr.counter("vf_client_filter_tweets|requests=cancelled"), 1);
+        assert_eq!(sr.counter("vf_client_filter_tweets|requests=completed"), 0);
+        assert_eq!(sr.counter("vf_client_filter_tweets|requests=degraded"), 0);
     }
 
     #[test]

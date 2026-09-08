@@ -152,9 +152,12 @@ class TaskSafetyPtosPolicyDetection(TaskWithPost):
         if policy is None:
             return None
         recheck.safetyPolicy = policy
-        cls._record_policy_metrics(metric_prefix, recheck)
+        Metrics.counter(f"{metric_prefix}.high_fav_adult_recheck.count").add(
+            1, attributes={"policy_type": policy.policyType.name}
+        )
         if policy.policyType == SafetyPolicyType.NoViolation:
             return None
+        cls._record_policy_metrics(metric_prefix, recheck)
         return recheck
 
     @classmethod

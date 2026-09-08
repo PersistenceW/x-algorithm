@@ -1,7 +1,7 @@
 use std::any::{type_name_of_val, Any};
 use tonic::async_trait;
 
-use crate::candidate_pipeline::{PipelineCandidate, PipelineQuery};
+use crate::candidate_pipeline::{PipelineCandidate, PipelineQuery, PipelineStage};
 use crate::pipeline_summary::record_source_fetched;
 use crate::util;
 use crate::SPAN_LEVEL;
@@ -19,7 +19,7 @@ where
 
     #[xai_stats_macro::receive_stats(size=Bucket500To1000)]
     #[tracing::instrument(level = SPAN_LEVEL, skip_all, name = "source", fields(name = self.name()))]
-    async fn run(&self, query: &Q) -> Result<Vec<C>, String> {
+    async fn run(&self, query: &Q, _stage: PipelineStage) -> Result<Vec<C>, String> {
         match self.source(query).await {
             Ok(candidates) => {
                 #[cfg(feature = "quiet-spans")]

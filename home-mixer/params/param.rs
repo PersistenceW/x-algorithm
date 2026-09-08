@@ -1,4 +1,4 @@
-// mirrored from config feature-switch defaults; last sync 2026-09-04T16:22:24Z
+// mirrored from config feature-switch defaults; last sync 2026-09-08T16:24:06Z
 use xai_feature_switches::param;
 
 param!(
@@ -159,7 +159,7 @@ param!(
     PhoenixRetrievalMOEInferenceClusterId,
     String,
     "rust_home_mixer_phoenix_retrieval_moe_inference_cluster_id",
-    "Experiment1Fou"
+    "Experiment2Memy04"
 );
 param!(
     PhoenixMOEMaxResults,
@@ -484,6 +484,18 @@ param!(
     String,
     "rust_home_mixer_value_model_mode",
     "weighted"
+);
+param!(
+    WeightPerturbationSigma,
+    f64,
+    "rust_home_mixer_weight_perturbation_sigma",
+    0.0
+);
+param!(
+    WeightPerturbationSalt,
+    String,
+    "rust_home_mixer_weight_perturbation_salt",
+    ""
 );
 param!(
     DwellRegretTemperature,

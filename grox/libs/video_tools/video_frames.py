@@ -20,8 +20,7 @@ from video_tools.image import (
 
 logger = logging.getLogger(__name__)
 
-_MOTION_REVEAL_DENSE_THRESHOLD = 12
-_MOTION_REVEAL_DENSE_SAMPLES = 16
+_MOTION_REVEAL_DENSE_SAMPLES = 32
 
 
 class VideoFrame(BaseModel):
@@ -46,6 +45,7 @@ class VideoFramesExtractor:
         enable_clahe: bool = False,
         include_combined_video_bytes: bool = True,
         enable_motion_reveal: bool = False,
+        max_duration: float | None = None,
     ) -> VideoData:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
@@ -57,6 +57,7 @@ class VideoFramesExtractor:
             enable_clahe,
             include_combined_video_bytes,
             enable_motion_reveal,
+            max_duration,
         )
 
     @classmethod
@@ -68,6 +69,7 @@ class VideoFramesExtractor:
         enable_clahe: bool = False,
         include_combined_video_bytes: bool = True,
         enable_motion_reveal: bool = False,
+        max_duration: float | None = None,
     ) -> VideoData:
         logger.info(f"Extracting maximum {max_frames} frames from video")
 
@@ -81,15 +83,13 @@ class VideoFramesExtractor:
                 logger.warning("No duration found for video")
                 c_duration = 0
             total_duration = float(c_duration / av.time_base)
+            if max_duration is not None:
+                total_duration = min(total_duration, max_duration)
             sample_times = cls._sample_frames(total_duration, max_frames)
             frames = cls._extract_frames_at_times(container, sample_times)
 
             reveal_input = frames
-            if (
-                enable_motion_reveal
-                and 0 < len(frames) < _MOTION_REVEAL_DENSE_THRESHOLD
-                and total_duration > 0
-            ):
+            if enable_motion_reveal and frames and total_duration > 0:
                 dense_times = [
                     i * total_duration / _MOTION_REVEAL_DENSE_SAMPLES
                     for i in range(_MOTION_REVEAL_DENSE_SAMPLES)

@@ -31,10 +31,9 @@ class ReplyRankingScoreStratoLoader:
         return await cls.strato.fetch(int(post_id))
 
     @classmethod
-    async def save_reply_ranking_score(
+    async def publish_reply_ranking_score(
         cls, post_id: str, reply_ranking_score: ReplyRankingScore
     ):
-        await cls.strato.put(int(post_id), reply_ranking_score)
         if (
             reply_ranking_score.score is not None
             and reply_ranking_score.score <= _CACHE_FANOUT_SCORE_MAX
@@ -43,11 +42,12 @@ class ReplyRankingScoreStratoLoader:
                 cls.strato_cache_atla.put(int(post_id), reply_ranking_score),
                 cls.strato_cache_pdxa.put(int(post_id), reply_ranking_score),
             )
-
-    @classmethod
-    async def save_reply_ranking_kafka_v2(
-        cls, post_id: str, reply_ranking_score_kafka: ReplyRankingScoreKafka
-    ):
         await cls.reply_ranking_v2_kafka_strato.insert(
-            int(post_id), reply_ranking_score_kafka
+            int(post_id),
+            ReplyRankingScoreKafka(
+                postId=int(post_id),
+                score=reply_ranking_score.score,
+                reasoning=reply_ranking_score.reasoning,
+            ),
         )
+        await cls.strato.put(int(post_id), reply_ranking_score)

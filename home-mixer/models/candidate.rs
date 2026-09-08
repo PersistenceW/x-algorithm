@@ -1,4 +1,5 @@
 use crate::models::brand_safety::BrandSafetyVerdict;
+use crate::models::content_features;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 pub use xai_candidate_pipeline::component_library::models::PhoenixScores;
@@ -40,7 +41,16 @@ pub struct PostCandidate {
     pub ancestor_texts: HashMap<u64, String>,
     pub quoted_tweet_text: Option<String>,
     pub min_video_duration_ms: Option<i32>,
+    pub max_video_duration_ms: Option<i32>,
+    pub has_photo: Option<bool>,
+    pub has_video: Option<bool>,
+    pub media_count: Option<i32>,
     pub quoted_video_duration_ms: Option<i32>,
+    pub quoted_has_media: Option<bool>,
+    pub quoted_has_photo: Option<bool>,
+    pub quoted_has_video: Option<bool>,
+    pub quoted_media_count: Option<i32>,
+    pub quoted_max_video_duration_ms: Option<i32>,
     pub author_followers_count: Option<i32>,
     pub author_screen_name: Option<String>,
     pub retweeted_screen_name: Option<String>,
@@ -282,6 +292,8 @@ impl CandidateHelpers for PostCandidate {
                 },
             }),
             semantic_ids: self.semantic_ids.clone().unwrap_or_default(),
+            content_features: Some(content_features::build(self)),
+            quoted_content_features: content_features::build_quoted(self),
             ..Default::default()
         }
     }
@@ -325,10 +337,30 @@ mod tests {
     #[test]
     fn post_candidate_deserializes_without_slate_context_field() {
         let mut value = serde_json::to_value(PostCandidate::default()).unwrap();
-        value.as_object_mut().unwrap().remove("slate_context");
+        let obj = value.as_object_mut().unwrap();
+        obj.remove("slate_context");
+        for field in [
+            "has_photo",
+            "has_video",
+            "media_count",
+            "max_video_duration_ms",
+            "quoted_has_media",
+            "quoted_has_photo",
+            "quoted_has_video",
+            "quoted_media_count",
+            "quoted_max_video_duration_ms",
+        ] {
+            obj.remove(field);
+        }
+        obj.insert(
+            "field_from_newer_build".to_string(),
+            serde_json::json!(true),
+        );
 
         let candidate: PostCandidate = serde_json::from_value(value).unwrap();
         assert_eq!(candidate.slate_context, None);
+        assert_eq!(candidate.has_video, None);
+        assert_eq!(candidate.media_count, None);
     }
 
     #[test]

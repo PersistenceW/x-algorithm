@@ -102,32 +102,7 @@ impl ScoringWeights {
         let bidirectional_follow_dwell_weight_boost =
             params.get(BidirectionalFollowDwellWeightBoost);
 
-        let positive_sum = favorite
-            + reply
-            + retweet
-            + photo_expand
-            + video_open
-            + click
-            + open_link
-            + profile_click
-            + vqv
-            + share
-            + share_via_dm
-            + share_via_copy_link
-            + dwell
-            + quote
-            + quoted_click
-            + quoted_vqv
-            + follow_author
-            + if enable_multiplicative_post_unexplored {
-                0.0
-            } else {
-                post_unexplored
-            };
-        let negative_sum = -(not_interested + block_author + mute_author + report + not_dwelled);
-        let total_sum = positive_sum + negative_sum;
-
-        Self {
+        let mut weights = Self {
             favorite,
             reply,
             retweet,
@@ -162,13 +137,102 @@ impl ScoringWeights {
             mute_author,
             report,
             not_dwelled,
-            negative_sum,
-            total_sum,
+            negative_sum: 0.0,
+            total_sum: 0.0,
             min_video_duration_ms,
             enable_quoted_vqv_duration_check,
             bidirectional_follow_reply_weight_boost,
             bidirectional_follow_dwell_weight_boost,
+        };
+        weights.recompute_sums();
+        weights
+    }
+
+    fn recompute_sums(&mut self) {
+        let positive_sum = self.favorite
+            + self.reply
+            + self.retweet
+            + self.photo_expand
+            + self.video_open
+            + self.click
+            + self.open_link
+            + self.profile_click
+            + self.vqv
+            + self.share
+            + self.share_via_dm
+            + self.share_via_copy_link
+            + self.dwell
+            + self.quote
+            + self.quoted_click
+            + self.quoted_vqv
+            + self.follow_author
+            + if self.enable_multiplicative_post_unexplored {
+                0.0
+            } else {
+                self.post_unexplored
+            };
+        self.negative_sum = -(self.not_interested
+            + self.block_author
+            + self.mute_author
+            + self.report
+            + self.not_dwelled);
+        self.total_sum = positive_sum + self.negative_sum;
+    }
+
+    pub(crate) fn perturbed(mut self, query: &ScoredPostsQuery) -> Self {
+        let sigma = query.params.get(WeightPerturbationSigma);
+        if sigma <= 0.0 {
+            return self;
         }
+        let salt = query.params.get(WeightPerturbationSalt);
+        for (head, weight) in self.weights_mut() {
+            *weight *= (sigma * perturbation_sign(&salt, query.user_id, head)).exp();
+        }
+        self.recompute_sums();
+        self
+    }
+
+    fn weights_mut(&mut self) -> [(&'static str, &mut f64); 26] {
+        [
+            ("favorite", &mut self.favorite),
+            ("reply", &mut self.reply),
+            ("retweet", &mut self.retweet),
+            ("photo_expand", &mut self.photo_expand),
+            ("video_open", &mut self.video_open),
+            ("click", &mut self.click),
+            ("open_link", &mut self.open_link),
+            ("profile_click", &mut self.profile_click),
+            ("vqv", &mut self.vqv),
+            ("share", &mut self.share),
+            ("share_via_dm", &mut self.share_via_dm),
+            ("share_via_copy_link", &mut self.share_via_copy_link),
+            ("dwell", &mut self.dwell),
+            ("quote", &mut self.quote),
+            ("quoted_click", &mut self.quoted_click),
+            ("quoted_vqv", &mut self.quoted_vqv),
+            ("dwell_time", &mut self.cont_dwell_time),
+            ("click_dwell_time", &mut self.cont_click_dwell_time),
+            (
+                "active_secs_5m_residual_norm",
+                &mut self.cont_active_secs_5m_residual_norm,
+            ),
+            ("follow_author", &mut self.follow_author),
+            ("post_unexplored", &mut self.post_unexplored),
+            ("not_interested", &mut self.not_interested),
+            ("block_author", &mut self.block_author),
+            ("mute_author", &mut self.mute_author),
+            ("report", &mut self.report),
+            ("not_dwelled", &mut self.not_dwelled),
+        ]
+    }
+}
+
+pub(crate) fn perturbation_sign(salt: &str, user_id: u64, head: &str) -> f64 {
+    let digest = md5::compute(format!("{salt}:{user_id}:{head}"));
+    if digest[0] & 1 == 1 {
+        1.0
+    } else {
+        -1.0
     }
 }
 
@@ -646,7 +710,7 @@ impl Scorer<ScoredPostsQuery, PostCandidate> for RankingScorer {
         query: &ScoredPostsQuery,
         candidates: &[PostCandidate],
     ) -> Vec<Result<PostCandidate, String>> {
-        let weights = ScoringWeights::from_params(&query.params);
+        let weights = ScoringWeights::from_params(&query.params).perturbed(query);
         let enable_author_diversity = query.params.get(EnableAuthorDiversity);
 
         let use_dwell_regret = match query.params.get(ValueModelMode).as_str() {

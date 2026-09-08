@@ -21,10 +21,11 @@ STORYBOARD_TILE_SIZE = 448
 NO_THINKING_PROMPT = grox_config.prompt_tokens.no_thinking_prompt
 
 MOTION_REVEAL_DESCRIPTION = (
-    "Motion-reveal stills for this video follow (static layer subtracted, faint moving layers amplified); "
-    "they distort colors and motion, and can make opaque clothing look like bare skin. People or acts "
-    "absent from the frames above but visible here are the video's actual overlay-hidden content; judge "
-    "anyone already visible above solely from the original frames."
+    "Motion-reveal stills for this video follow. They expose content that may be hidden under the visible video "
+    "as a faint overlay, by subtracting the static layer and amplifying the moving one, so colors and textures are "
+    "distorted. Judge what they show as part of the video's actual content, as if it were shown openly, even when "
+    "it is low-resolution, blurred, or partially obscured. The visible video may be a decoy: when the revealed "
+    "content is more severe than the visible video, classify the post by the revealed content."
 )
 
 

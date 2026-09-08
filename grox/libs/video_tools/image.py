@@ -158,12 +158,13 @@ def pad_image(image_bytes: bytes) -> bytes:
 _MOTION_REVEAL_MIN_FRAMES = 4
 _MOTION_REVEAL_MAX_INPUT_FRAMES = 32
 _MOTION_REVEAL_WORK_MAX_DIM = 640
-_MOTION_REVEAL_COVER_WEIGHT = 0.7
-_MOTION_REVEAL_GRID_FRAMES = 4
-_MOTION_REVEAL_GRID_COLUMNS = 2
+_MOTION_REVEAL_OVERVIEW_FRAMES = 9
+_MOTION_REVEAL_DETAIL_STILLS = 6
 _MOTION_REVEAL_JPEG_QUALITY = 90
 _MOTION_REVEAL_MIN_RESIDUAL_P99 = 3.0
-_MOTION_REVEAL_MAX_RESIDUAL_P99 = 75.0
+_MOTION_REVEAL_MAX_RESIDUAL_P99 = 100.0
+_MOTION_REVEAL_DENOISE_ENERGY = (1.0, 3.0, 8.0)
+_MOTION_REVEAL_DENOISE_SIGMA = (2.0, 1.2, 0.0)
 
 
 def _decode_reveal_frame(frame_bytes: bytes) -> np.ndarray | None:
@@ -236,6 +237,8 @@ def build_motion_reveal_images(frame_jpegs: list[bytes]) -> list[bytes]:
     stack = np.stack(decoded, axis=0)
     median = np.median(stack, axis=0)
     residual = np.abs(stack - median[None]).mean(axis=-1)
+    motion_energy = residual.mean(axis=(1, 2))
+
     per_frame_p99 = np.percentile(residual.reshape(len(decoded), -1), 99, axis=1)
     if (
         not _MOTION_REVEAL_MIN_RESIDUAL_P99
@@ -243,30 +246,45 @@ def build_motion_reveal_images(frame_jpegs: list[bytes]) -> list[bytes]:
         <= _MOTION_REVEAL_MAX_RESIDUAL_P99
     ):
         return []
-    motion_energy = residual.mean(axis=(1, 2))
 
-    unmixed = [
-        _stretch_to_u8(frame - _MOTION_REVEAL_COVER_WEIGHT * median) for frame in stack
-    ]
+    sigma = float(
+        np.interp(
+            float(np.median(motion_energy)),
+            _MOTION_REVEAL_DENOISE_ENERGY,
+            _MOTION_REVEAL_DENOISE_SIGMA,
+        )
+    )
+
+    def unmix(frame: np.ndarray) -> np.ndarray:
+        layer = frame - median
+        if sigma > 0:
+            layer = cv2.GaussianBlur(layer, (0, 0), sigma)
+        return _stretch_to_u8(layer)
+
+    unmixed = [unmix(frame) for frame in stack]
     skin = np.array([_skin_fraction(still) for still in unmixed])
-    order = np.argsort(-(motion_energy * (0.5 + skin)))
+    score = motion_energy * (0.5 + skin)
+
+    def best_per_segment(segments: int, exclude: int | None = None) -> list[int]:
+        picks: list[int] = []
+        for segment in np.array_split(np.arange(len(decoded)), segments):
+            candidates = [int(i) for i in segment if int(i) != exclude]
+            if candidates:
+                picks.append(max(candidates, key=lambda i: score[i]))
+        return picks
 
     out: list[bytes] = []
 
-    best = int(order[0])
-    pair = np.concatenate([stack[best].astype(np.uint8), unmixed[best]], axis=1)
-    encoded = _encode_reveal(pair)
+    best = int(np.argmax(score))
+    encoded = _encode_reveal(
+        np.concatenate([stack[best].astype(np.uint8), unmixed[best]], axis=1)
+    )
     if encoded:
         out.append(encoded)
 
-    encoded = _encode_reveal(unmixed[best])
-    if encoded:
-        out.append(encoded)
-
-    grid_indices = sorted(int(i) for i in order[:_MOTION_REVEAL_GRID_FRAMES])
-    tiles = [unmixed[i] for i in grid_indices]
+    tiles = [unmixed[i] for i in best_per_segment(_MOTION_REVEAL_OVERVIEW_FRAMES)]
     h, w = tiles[0].shape[:2]
-    cols = _MOTION_REVEAL_GRID_COLUMNS
+    cols = math.ceil(math.sqrt(len(tiles)))
     rows = math.ceil(len(tiles) / cols)
     canvas = np.zeros((rows * h, cols * w, 3), dtype=np.uint8)
     for i, tile in enumerate(tiles):
@@ -275,5 +293,10 @@ def build_motion_reveal_images(frame_jpegs: list[bytes]) -> list[bytes]:
     encoded = _encode_reveal(canvas)
     if encoded:
         out.append(encoded)
+
+    for i in best_per_segment(_MOTION_REVEAL_DETAIL_STILLS, exclude=best):
+        encoded = _encode_reveal(unmixed[i])
+        if encoded:
+            out.append(encoded)
 
     return out
