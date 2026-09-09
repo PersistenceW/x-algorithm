@@ -7,6 +7,7 @@ import urllib.error
 import urllib.request
 import uuid
 
+from grox.config.config import grox_config
 from grox.core.lib.utils import detect_image_content_type
 from grox.core.data_loaders.data_types import Image, Post, Video
 from grox.flows.ptos.state import SafetyPolicyCategory, SafetyPtosState
@@ -28,6 +29,7 @@ _MAX_RETRIES = 3
 _MAX_FRAMES_PER_VIDEO = 8
 _MAX_PAYLOADS_PER_POST = 12
 _ADULT_POSITIVE_BUCKETS = {"R", "X"}
+_FRAME_KINDS = {"video_frame", "broadcast_frame"}
 _METRIC_PREFIX = "task.safety_ptos_safemodel_sex_nudity"
 
 
@@ -81,10 +83,10 @@ class TaskSafetyPtosSafemodelSexNudity(TaskWithPost):
             )
             return
 
-        has_video = any(kind == "video_frame" for kind, _ in payloads)
+        has_video = any(kind in _FRAME_KINDS for kind, _ in payloads)
         has_video_attr = "true" if has_video else "false"
         n_images = sum(1 for kind, _ in payloads if kind == "image")
-        n_video_frames = sum(1 for kind, _ in payloads if kind == "video_frame")
+        n_video_frames = sum(1 for kind, _ in payloads if kind in _FRAME_KINDS)
 
         Metrics.counter(f"{_METRIC_PREFIX}.invoked.count").add(
             1, attributes={"has_video": has_video_attr, "flow": flow}
@@ -153,6 +155,14 @@ class TaskSafetyPtosSafemodelSexNudity(TaskWithPost):
                         payloads.append(("video_frame", frame))
             if len(payloads) >= _MAX_PAYLOADS_PER_POST:
                 return payloads[:_MAX_PAYLOADS_PER_POST]
+        if grox_config.media_hydration.enable_local_broadcast_frame_extraction:
+            for video in cls._iter_broadcast_videos(post):
+                for frame in cls._sample_uniform(
+                    video.convo_video.frames, _MAX_FRAMES_PER_VIDEO
+                ):
+                    payloads.append(("broadcast_frame", frame))
+                if len(payloads) >= _MAX_PAYLOADS_PER_POST:
+                    return payloads[:_MAX_PAYLOADS_PER_POST]
         return payloads
 
     @staticmethod
@@ -163,6 +173,15 @@ class TaskSafetyPtosSafemodelSexNudity(TaskWithPost):
         if post.quoted_post and post.quoted_post.media:
             for m in post.quoted_post.media:
                 yield m
+
+    @staticmethod
+    def _iter_broadcast_videos(post: Post):
+        for owner in (post, post.quoted_post):
+            if owner is None or owner.broadcast_metadata is None:
+                continue
+            video = owner.broadcast_metadata.video
+            if video and video.convo_video and video.convo_video.frames:
+                yield video
 
     @staticmethod
     def _sample_uniform(items: list[bytes], k: int) -> list[bytes]:

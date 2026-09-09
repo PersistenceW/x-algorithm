@@ -22,17 +22,11 @@ where
     async fn run(&self, query: &Q, _stage: PipelineStage) -> Result<Vec<C>, String> {
         match self.source(query).await {
             Ok(candidates) => {
-                #[cfg(feature = "quiet-spans")]
-                tracing::info!(
-                    component = self.name(),
-                    candidate_count = candidates.len(),
-                    "source"
-                );
                 record_source_fetched(self.name(), candidates.len());
                 Ok(candidates)
             }
             Err(err) => {
-                error!(component = self.name(), error = %err, "source_failed");
+                error!("{} Failed: {}", self.name(), err);
                 Err(err)
             }
         }

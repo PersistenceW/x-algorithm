@@ -26,12 +26,6 @@ where
         let scored = self.score(query, candidates).await;
         let expected_len = candidates.len();
         if scored.len() == expected_len {
-            #[cfg(feature = "quiet-spans")]
-            tracing::info!(
-                component = self.name(),
-                candidate_count = expected_len,
-                "scorer"
-            );
             scored
         } else {
             let message = format!(

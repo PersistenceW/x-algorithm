@@ -375,7 +375,7 @@ fn relationship_cases() -> Vec<Case> {
             level: TimelineHome,
             viewer: viewer(VIEWER_ID),
             candidate: relationship_candidate(|r| r.viewer_blocks_author = true),
-            expected_action: Drop(FilteredReason::AuthorBlockViewer),
+            expected_action: Drop(FilteredReason::ViewerBlocksAuthor),
             expected_decided_by: Some("ViewerBlocksAuthorRule"),
         },
         Case {
@@ -394,7 +394,7 @@ fn relationship_cases() -> Vec<Case> {
                 r.viewer_blocks_author = true;
                 r.viewer_mutes_author = true;
             }),
-            expected_action: Drop(FilteredReason::AuthorBlockViewer),
+            expected_action: Drop(FilteredReason::ViewerBlocksAuthor),
             expected_decided_by: Some("ViewerBlocksAuthorRule"),
         },
         Case {

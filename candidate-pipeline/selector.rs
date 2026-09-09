@@ -41,13 +41,6 @@ where
         let span = Span::current();
         span.record("selected_count", result.selected.len());
         span.record("non_selected_count", result.non_selected.len());
-        #[cfg(feature = "quiet-spans")]
-        tracing::info!(
-            component = self.name(),
-            selected_count = result.selected.len(),
-            non_selected_count = result.non_selected.len(),
-            "selector"
-        );
         self.stat(&result, stage);
         result
     }

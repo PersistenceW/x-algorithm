@@ -409,7 +409,7 @@ retrieval):
 | IP-address vocab | 10M | 10k | — | — |
 | Hashes per entity | 2 | 2 | 2 | 2 |
 | Semantic IDs | 6 × 256 (input feature) | 6 × 256 (input feature) | 6 × 256 (candidate identity) | 6 × 256 (candidate identity) |
-| Multimodal post embedding | v5 on `xrecsys_seqpack`; off on `home_direct_packed` | — | — | — |
+| Multimodal post embedding | off (`home_direct_packed` and `xrecsys_seqpack`) | — | — | — |
 | SID cross-attention | no | no | yes | yes |
 | Discrete action taxonomy | 64 | 64 | 64 (positives: favorite) | 64 (positives: favorite) |
 | Continuous-action heads (dwell) | 8 slots | 8 slots | — (dwell input on combined only) | — |
@@ -422,8 +422,8 @@ contract, and `emb_size=512` is the μP base width — the transformer trunk's
 width-dependent LR/scale multipliers are exactly 1 there. The ranking nano
 exercises the same input code paths as its production parent
 (`home_direct_packed`), feature prep included — the multimodal-embedding
-input is off in both, and is enabled only on the `xrecsys_seqpack` training
-config, as the table shows;
+input is off in both, and on every registered ranking config, as the table
+shows;
 the retrieval nano uses the flagship's `enable_linear_proj` candidate
 combine (a small concat-then-MLP) and trains unpacked (dense attention), as
 the table shows.

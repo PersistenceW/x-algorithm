@@ -19,13 +19,9 @@ where
     #[tracing::instrument(level = SPAN_LEVEL, skip_all, name = "query_hydrator", fields(name = self.name()))]
     async fn run(&self, query: &Q, _stage: PipelineStage) -> Result<Q, String> {
         match self.hydrate(query).await {
-            Ok(hydrated) => {
-                #[cfg(feature = "quiet-spans")]
-                tracing::info!(component = self.name(), "query_hydrator");
-                Ok(hydrated)
-            }
+            Ok(hydrated) => Ok(hydrated),
             Err(err) => {
-                error!(component = self.name(), error = %err, "query_hydrator_failed");
+                error!("{} Failed: {}", self.name(), err);
                 Err(err)
             }
         }

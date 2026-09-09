@@ -39,14 +39,6 @@ where
         span.record("kept_count", result.kept.len());
         span.record("removed_count", result.removed.len());
         span.record("filter_rate", format!("{:.3}", rate).as_str());
-        #[cfg(feature = "quiet-spans")]
-        tracing::info!(
-            component = self.name(),
-            kept_count = result.kept.len(),
-            removed_count = result.removed.len(),
-            filter_rate = format!("{rate:.3}"),
-            "filter"
-        );
         self.stat(&result, stage);
         result
     }

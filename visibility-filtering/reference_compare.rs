@@ -747,6 +747,7 @@ mod tests {
                     (
                         id,
                         Ok(TweetVisibility {
+                            action: Action::Allow,
                             reason: None,
                             safety_labels: Err(SafetyLabelFailure::LookupFailed),
                         }),

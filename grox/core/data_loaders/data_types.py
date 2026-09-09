@@ -529,6 +529,7 @@ class BroadcastMetadata(BaseModel):
     media_key: str | None = None
     thumbnail_image: Image | None = None
     video: Video | None = None
+    crop_seconds: float | None = None
 
     @classmethod
     def from_thrift_model(
@@ -542,8 +543,8 @@ class BroadcastMetadata(BaseModel):
             else None,
         )
 
-    def to_convo(self) -> list[str | ConvoImage]:
-        res: list[str | ConvoImage] = [
+    def to_convo(self) -> list[str | ConvoImage | ConvoVideo]:
+        res: list[str | ConvoImage | ConvoVideo] = [
             "\n\nThis post has the following broadcast metadata attached:"
         ]
         if self.thumbnail_image and self.thumbnail_image.convo_image:

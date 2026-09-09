@@ -39,12 +39,6 @@ where
         let hydrated = self.hydrate_for_stage(query, candidates, stage).await;
         let expected_len = candidates.len();
         if hydrated.len() == expected_len {
-            #[cfg(feature = "quiet-spans")]
-            tracing::info!(
-                component = self.name(),
-                candidate_count = expected_len,
-                "hydrator"
-            );
             hydrated
         } else {
             let message = format!(

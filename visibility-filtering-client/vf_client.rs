@@ -1,5 +1,5 @@
 use crate::discovery::{build_vf_channel, VfChannel, VfChannelError, VfChannelParams, VfDiscovery};
-use crate::models::{Action, FilteredReason, SafetyResult};
+use crate::models::{Action, DropReason, FilteredReason, SafetyResult};
 use crate::tweet_safety_label::{proto_to_safety_label_map, SafetyLabelFailure};
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
@@ -107,8 +107,29 @@ impl MValCodec for SafetyLevel {
 
 #[derive(Debug, Clone)]
 pub struct TweetVisibility {
+    pub action: Action,
     pub reason: Option<FilteredReason>,
     pub safety_labels: Result<SafetyLabelMap, SafetyLabelFailure>,
+}
+
+impl TweetVisibility {
+    pub fn to_visibility_reason(&self) -> Option<FilteredReason> {
+        if matches!(self.reason, Some(FilteredReason::SafetyResult(_))) {
+            return self.reason.clone();
+        }
+        match self.action {
+            Action::Allow => None,
+            Action::Interstitial => Some(FilteredReason::SafetyResult(SafetyResult {
+                reason: None,
+                action: Action::Interstitial,
+            })),
+            _ => Some(
+                self.reason
+                    .clone()
+                    .unwrap_or(FilteredReason::UnspecifiedReason),
+            ),
+        }
+    }
 }
 
 #[async_trait]
@@ -154,6 +175,17 @@ impl StratoVfClient {
     }
 }
 
+fn action_from_strato_reason(reason: &Option<FilteredReason>) -> Action {
+    match reason {
+        None => Action::Allow,
+        Some(FilteredReason::SafetyResult(safety_result)) => match safety_result.action {
+            Action::NotEvaluated => Action::Allow,
+            _ => safety_result.action.clone(),
+        },
+        Some(_) => Action::Drop(DropReason {}),
+    }
+}
+
 #[async_trait]
 impl VfClient for StratoVfClient {
     async fn get_result(
@@ -186,10 +218,14 @@ impl VfClient for StratoVfClient {
                 Ok(bytes) => {
                     let decoded: StratoResult<StratoValue<FilteredReason>> = decode(&bytes);
                     match decoded {
-                        StratoResult::Ok(strato_value) => Ok(TweetVisibility {
-                            reason: strato_value.v,
-                            safety_labels: Err(SafetyLabelFailure::LookupFailed),
-                        }),
+                        StratoResult::Ok(strato_value) => {
+                            let reason = strato_value.v;
+                            Ok(TweetVisibility {
+                                action: action_from_strato_reason(&reason),
+                                reason,
+                                safety_labels: Err(SafetyLabelFailure::LookupFailed),
+                            })
+                        }
                         StratoResult::Err(err) => {
                             Err(anyhow!("Strato error code {}: {}", err.code, err.message))
                         }
@@ -309,31 +345,14 @@ fn to_proto_safety_level(level: SafetyLevel) -> vf_pb::SafetyLevel {
     }
 }
 
-fn result_to_reason(result: vf_pb::TweetVisibilityResult) -> Option<FilteredReason> {
-    use vf_pb::action::Kind;
-    match result.action.and_then(|a| a.kind) {
-        Some(Kind::Allow(_)) => None,
-        Some(Kind::Interstitial(_)) => Some(FilteredReason::SafetyResult(SafetyResult {
-            reason: None,
-            action: Action::Interstitial,
-        })),
-        _ => Some(
-            result
-                .filtered_reason
-                .map(FilteredReason::from)
-                .unwrap_or(FilteredReason::UnspecifiedReason),
-        ),
-    }
-}
-
-fn result_to_visibility(mut result: vf_pb::TweetVisibilityResult) -> TweetVisibility {
+fn result_to_visibility(result: vf_pb::TweetVisibilityResult) -> TweetVisibility {
     let safety_labels = result
         .safety_labels
-        .take()
         .map(|m| proto_to_safety_label_map(&m))
         .ok_or(SafetyLabelFailure::LookupFailed);
     TweetVisibility {
-        reason: result_to_reason(result),
+        action: result.action.map(Action::from).unwrap_or_default(),
+        reason: result.filtered_reason.map(FilteredReason::from),
         safety_labels,
     }
 }
@@ -349,6 +368,7 @@ fn results_to_map(
     for &tweet_id in requested_tweet_ids {
         map.entry(tweet_id).or_insert_with(|| {
             Ok(TweetVisibility {
+                action: Action::NotEvaluated,
                 reason: Some(FilteredReason::UnspecifiedReason),
                 safety_labels: Err(SafetyLabelFailure::LookupFailed),
             })
@@ -739,7 +759,7 @@ mod rust_vf_tests {
     }
 
     #[test]
-    fn results_to_map_converts_allow_and_drop() {
+    fn results_to_map_converts_actions_and_fails_closed() {
         let results = vec![
             vf_pb::TweetVisibilityResult {
                 tweet_id: 1,
@@ -773,23 +793,39 @@ mod rust_vf_tests {
                 }),
                 safety_labels: None,
             },
+            vf_pb::TweetVisibilityResult {
+                tweet_id: 7,
+                action: Some(vf_pb::Action {
+                    kind: Some(vf_pb::action::Kind::Interstitial(true)),
+                }),
+                filtered_reason: Some(vf_pb::FilteredReason {
+                    reason: Some(vf_pb::filtered_reason::Reason::ContainNsfwMedia(true)),
+                }),
+                safety_labels: None,
+            },
         ];
 
-        let map = results_to_map(&[1, 2, 3, 4], results);
+        let map = results_to_map(&[1, 2, 3, 4, 7], results);
 
         assert!(matches!(
             map.get(&1),
-            Some(Ok(TweetVisibility { reason: None, .. }))
+            Some(Ok(TweetVisibility {
+                action: Action::Allow,
+                reason: None,
+                ..
+            }))
         ));
         assert!(matches!(
             map.get(&2),
             Some(Ok(TweetVisibility {
+                action: Action::Drop(_),
                 reason: Some(FilteredReason::AuthorIsUnsafe),
                 ..
             }))
         ));
         match map.get(&3) {
             Some(Ok(TweetVisibility {
+                action: Action::NotEvaluated,
                 reason: Some(FilteredReason::SafetyResult(sr)),
                 ..
             })) => {
@@ -801,12 +837,62 @@ mod rust_vf_tests {
             matches!(
                 map.get(&4),
                 Some(Ok(TweetVisibility {
+                    action: Action::NotEvaluated,
                     reason: Some(FilteredReason::UnspecifiedReason),
                     ..
                 }))
             ),
-            "missing response ids fail closed"
+            "missing response ids surface no verdict"
         );
+        assert!(matches!(
+            map.get(&7),
+            Some(Ok(TweetVisibility {
+                action: Action::Interstitial,
+                reason: Some(FilteredReason::ContainNsfwMedia),
+                ..
+            }))
+        ));
+    }
+
+    #[test]
+    fn strato_absent_and_bare_reasons_keep_their_policy() {
+        assert_eq!(action_from_strato_reason(&None), Action::Allow);
+        assert_eq!(
+            action_from_strato_reason(&Some(FilteredReason::AuthorBlockViewer)),
+            Action::Drop(DropReason {})
+        );
+    }
+
+    #[test]
+    fn response_projection_preserves_rust_reason_shape() {
+        for (action, reason, expected) in [
+            (Action::Allow, Some(FilteredReason::ContainNsfwMedia), None),
+            (
+                Action::Interstitial,
+                Some(FilteredReason::ContainNsfwMedia),
+                Some(FilteredReason::SafetyResult(SafetyResult {
+                    reason: None,
+                    action: Action::Interstitial,
+                })),
+            ),
+            (
+                Action::Drop(DropReason {}),
+                Some(FilteredReason::AuthorIsUnsafe),
+                Some(FilteredReason::AuthorIsUnsafe),
+            ),
+            (
+                Action::NotEvaluated,
+                None,
+                Some(FilteredReason::UnspecifiedReason),
+            ),
+        ] {
+            let visibility = TweetVisibility {
+                action,
+                reason,
+                safety_labels: Err(SafetyLabelFailure::LookupFailed),
+            };
+            assert_eq!(visibility.to_visibility_reason(), expected);
+        }
     }
 
     #[test]
@@ -869,32 +955,6 @@ mod rust_vf_tests {
         }
     }
 
-    #[test]
-    fn interstitial_wraps_as_safety_result() {
-        let results = vec![vf_pb::TweetVisibilityResult {
-            tweet_id: 7,
-            action: Some(vf_pb::Action {
-                kind: Some(vf_pb::action::Kind::Interstitial(true)),
-            }),
-            filtered_reason: Some(vf_pb::FilteredReason {
-                reason: Some(vf_pb::filtered_reason::Reason::ContainNsfwMedia(true)),
-            }),
-            safety_labels: None,
-        }];
-
-        let map = results_to_map(&[7], results);
-
-        match map.get(&7) {
-            Some(Ok(TweetVisibility {
-                reason: Some(FilteredReason::SafetyResult(sr)),
-                ..
-            })) => {
-                assert!(matches!(sr.action, Action::Interstitial));
-            }
-            other => panic!("interstitial should wrap as SafetyResult, got: {other:?}"),
-        }
-    }
-
     #[derive(Clone, Default)]
     struct StubVfService {
         requests: Arc<Mutex<Vec<vf_pb::VisibilityFilterRequest>>>,
@@ -911,14 +971,20 @@ mod rust_vf_tests {
             let results = req
                 .tweets
                 .iter()
-                .map(|t| vf_pb::TweetVisibilityResult {
+                .enumerate()
+                .map(|(index, t)| vf_pb::TweetVisibilityResult {
                     tweet_id: t.tweet_id,
                     action: Some(vf_pb::Action {
                         kind: Some(vf_pb::action::Kind::Drop(vf_pb::DropReason {})),
                     }),
-                    filtered_reason: Some(vf_pb::FilteredReason {
-                        reason: Some(vf_pb::filtered_reason::Reason::AuthorIsUnsafe(true)),
-                    }),
+                    filtered_reason: Some(
+                        if index == 0 {
+                            FilteredReason::AuthorBlockViewer
+                        } else {
+                            FilteredReason::ViewerBlocksAuthor
+                        }
+                        .into(),
+                    ),
                     safety_labels: None,
                 })
                 .collect();
@@ -958,7 +1024,7 @@ mod rust_vf_tests {
     }
 
     #[tokio::test]
-    async fn get_result_calls_filter_tweets_and_converts() {
+    async fn get_result_keeps_block_directions_distinct() {
         let (addr, handle, _requests) = start_stub_server().await;
         let channel = tonic::transport::Endpoint::from_shared(format!("http://{addr}"))
             .unwrap()
@@ -975,14 +1041,16 @@ mod rust_vf_tests {
         assert!(matches!(
             result.get(&10),
             Some(Ok(TweetVisibility {
-                reason: Some(FilteredReason::AuthorIsUnsafe),
+                action: Action::Drop(_),
+                reason: Some(FilteredReason::AuthorBlockViewer),
                 ..
             }))
         ));
         assert!(matches!(
             result.get(&20),
             Some(Ok(TweetVisibility {
-                reason: Some(FilteredReason::AuthorIsUnsafe),
+                action: Action::Drop(_),
+                reason: Some(FilteredReason::ViewerBlocksAuthor),
                 ..
             }))
         ));

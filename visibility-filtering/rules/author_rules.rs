@@ -126,7 +126,7 @@ fn viewer_blocks_author(context: &RuleContext<'_>) -> VfAction {
         return VfAction::Allow;
     }
     if context.viewer().blocks_author() {
-        return VfAction::Drop(FilteredReason::AuthorBlockViewer);
+        return VfAction::Drop(FilteredReason::ViewerBlocksAuthor);
     }
     VfAction::Allow
 }
@@ -284,7 +284,7 @@ mod tests {
                     ..Default::default()
                 },
                 false,
-                FilteredReason::AuthorBlockViewer,
+                FilteredReason::ViewerBlocksAuthor,
             ),
             "ViewerMutesAuthorRule" => (
                 ViewerAuthorRelationship {

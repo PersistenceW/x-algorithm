@@ -6,7 +6,6 @@ from strato_http.queries.safety_post_annotations_result import (
     StratoSafetyPostAnnotationsResultDirectMh,
 )
 
-from grox.config.config import grox_config
 from grox.core.data_loaders.data_types import Post, Video
 from grox.core.schedules.types import TaskContext
 from grox.core.tasks.task_filters import TaskFilterWithPost
@@ -30,11 +29,6 @@ class TaskSafetyPtosAdultContentLeadingFramesFilter(TaskFilterWithPost):
     async def _eligible_with_post(cls, post: Post, ctx: TaskContext) -> bool:
         if not post.user:
             return cls._skip(post, "no_user")
-        if (
-            post.get_fav_count()
-            < grox_config.media_hydration.deluxe_fav_count_threshold
-        ):
-            return cls._skip(post, "not_high_fav")
         media = [
             *(post.media or []),
             *(post.quoted_post.media or [] if post.quoted_post else []),
@@ -47,7 +41,14 @@ class TaskSafetyPtosAdultContentLeadingFramesFilter(TaskFilterWithPost):
             and (m.videoInfo.durationMillis or 0)
             >= ADULT_CONTENT_LEADING_FRAMES_MIN_DURATION_SECONDS * 1000
         ]
-        if not long_videos:
+        broadcasts = [
+            p.broadcast_metadata
+            for p in (post, post.quoted_post)
+            if p is not None
+            and p.broadcast_metadata is not None
+            and p.broadcast_metadata.broadcast_id
+        ]
+        if not long_videos and not broadcasts:
             return cls._skip(post, "no_long_video")
         prior = await cls._result_direct_mh.fetch(int(post.id))
         if prior is None:
@@ -67,8 +68,17 @@ class TaskSafetyPtosAdultContentLeadingFramesFilter(TaskFilterWithPost):
 
         for video in long_videos:
             video.crop_seconds = ADULT_CONTENT_LEADING_FRAMES_CROP_SECONDS
+        for broadcast in broadcasts:
+            broadcast.crop_seconds = ADULT_CONTENT_LEADING_FRAMES_CROP_SECONDS
+        media_type = (
+            "both"
+            if long_videos and broadcasts
+            else "broadcast"
+            if broadcasts
+            else "video"
+        )
         Metrics.counter(f"{_METRIC_PREFIX}.eligible.count").add(
-            1, attributes={"prior_adult": str(prior_adult).lower()}
+            1, attributes={"media": media_type, "prior_adult": str(prior_adult).lower()}
         )
         return True
 
