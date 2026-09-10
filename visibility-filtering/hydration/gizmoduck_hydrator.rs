@@ -1,16 +1,16 @@
 use crate::clients::gizmoduck_client::GizmoduckLookup;
 use crate::hydration::batch::{AuthorHydrationBatch, HydrationBatch, TweetHydrationBatch};
 use crate::hydration::fallback_cache::FallbackCache;
-use crate::hydration::metrics::{record_batch_size, timed_results};
+use crate::hydration::metrics::{record_author_labels, record_batch_size, timed_results};
 use crate::hydration::{keyed_by_author, tweets_per_author};
-use crate::models::{AuthorFeatures, AuthorId, TweetCandidateInput, UserLabelSet};
+use crate::models::{AuthorFeatures, AuthorId, AuthorLabel, AuthorLabelSet, TweetCandidateInput};
 use crate::rules::SafetyLevel;
 use std::time::Duration;
 use xai_core_entities::entities::GizmoduckUserResult;
 use xai_core_entities::gizmoduck_client::QueryFields;
 use xai_x_thrift::user_labels::LabelValue;
 
-const CLIENT_TIMEOUT: Duration = Duration::from_millis(150);
+const CLIENT_TIMEOUT: Duration = crate::hydration::HYDRATION_TIMEOUT;
 const CLIENT: &str = "gizmoduck";
 const CACHE_CAPACITY: usize = 1_000_000;
 
@@ -67,7 +67,10 @@ impl GizmoduckAuthorHydrator {
             .await
         };
 
-        let author_features = user_results.map(author_features);
+        let mut label_counts = LabelCounts::default();
+        let author_features =
+            user_results.map(|user_result| author_features(user_result, &mut label_counts));
+        record_author_labels(label_counts.mapped, label_counts.unmapped);
         let author_features = if let Some((cache, generation)) = cache_request {
             cache.resolve_hydration_batch(generation, author_features)
         } else {
@@ -77,26 +80,55 @@ impl GizmoduckAuthorHydrator {
     }
 }
 
-fn author_features(user_result: GizmoduckUserResult) -> AuthorFeatures {
+#[derive(Default)]
+struct LabelCounts {
+    mapped: usize,
+    unmapped: usize,
+}
+
+fn author_features(user_result: GizmoduckUserResult, counts: &mut LabelCounts) -> AuthorFeatures {
     user_result
         .user
-        .map(|user| AuthorFeatures {
-            is_suspended: user.safety.suspended,
-            is_deactivated: user.safety.deactivated,
-            is_protected: user.safety.is_protected,
-            is_nsfw_user: user.safety.nsfw_user,
-            is_nsfw_admin: user.safety.nsfw_admin,
-            is_erased: user.safety.erased,
-            is_offboarded: user.safety.offboarded,
-            user_labels: UserLabelSet::new(
-                user.labels
-                    .labels
-                    .iter()
-                    .map(|label| LabelValue::from(label.label_value))
-                    .collect(),
-            ),
+        .map(|user| {
+            let mut user_labels = AuthorLabelSet::default();
+            for label in &user.labels.labels {
+                match author_label(LabelValue(label.label_value)) {
+                    Some(modeled) => {
+                        user_labels.insert(modeled);
+                        counts.mapped += 1;
+                    }
+                    None => counts.unmapped += 1,
+                }
+            }
+            AuthorFeatures {
+                is_suspended: user.safety.suspended,
+                is_deactivated: user.safety.deactivated,
+                is_protected: user.safety.is_protected,
+                is_nsfw_user: user.safety.nsfw_user,
+                is_nsfw_admin: user.safety.nsfw_admin,
+                is_erased: user.safety.erased,
+                is_offboarded: user.safety.offboarded,
+                user_labels,
+            }
         })
         .unwrap_or_default()
+}
+
+fn author_label(value: LabelValue) -> Option<AuthorLabel> {
+    match value {
+        LabelValue::NSFW_HIGH_RECALL => Some(AuthorLabel::NsfwHighRecall),
+        LabelValue::NSFW_HIGH_PRECISION => Some(AuthorLabel::NsfwHighPrecision),
+        LabelValue::NSFW_NEAR_PERFECT => Some(AuthorLabel::NsfwNearPerfect),
+        LabelValue::NSFW_AVATAR_IMAGE => Some(AuthorLabel::NsfwAvatarImage),
+        LabelValue::NSFW_BANNER_IMAGE => Some(AuthorLabel::NsfwBannerImage),
+        LabelValue::SPAM_HIGH_RECALL => Some(AuthorLabel::SpamHighRecall),
+        LabelValue::ABUSIVE_HIGH_RECALL => Some(AuthorLabel::AbusiveHighRecall),
+        LabelValue::COMPROMISED => Some(AuthorLabel::Compromised),
+        LabelValue::READ_ONLY => Some(AuthorLabel::ReadOnly),
+        LabelValue::IMPERSONATION_HIGH_PRECISION => Some(AuthorLabel::ImpersonationHighPrecision),
+        LabelValue::DO_NOT_AMPLIFY => Some(AuthorLabel::DoNotAmplify),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -110,7 +142,9 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
         Arc,
     };
-    use xai_core_entities::entities::{GizmoduckUser, PCFLabel, PureCoreData, Safety};
+    use xai_core_entities::entities::{
+        GizmoduckUser, Label, Labels, PCFLabel, PureCoreData, Safety,
+    };
     use xai_core_entities::gizmoduck_client::{
         GizmoduckClient, MockGizmoduckClient, UserFields, ViewerData,
     };
@@ -202,6 +236,7 @@ mod tests {
                 request_author_id: Some(author_id),
             },
             &HashMap::<TweetId, PureCoreData>::new(),
+            &HashMap::new(),
         )
         .unwrap()
     }
@@ -256,6 +291,73 @@ mod tests {
         assert!(second.get_or_default(&TweetId(1)).is_suspended);
     }
 
+    fn user_with_labels(label_values: &[i32]) -> GizmoduckUserResult {
+        GizmoduckUserResult {
+            user: Some(GizmoduckUser {
+                user_id: 1,
+                labels: Labels {
+                    labels: label_values
+                        .iter()
+                        .map(|&label_value| Label {
+                            label_value,
+                            created_at_msec: 0,
+                        })
+                        .collect(),
+                },
+                ..Default::default()
+            }),
+        }
+    }
+
+    #[test]
+    fn every_author_label_variant_round_trips_from_its_thrift_constant() {
+        for (thrift, variant) in [
+            (LabelValue::NSFW_HIGH_RECALL, AuthorLabel::NsfwHighRecall),
+            (
+                LabelValue::NSFW_HIGH_PRECISION,
+                AuthorLabel::NsfwHighPrecision,
+            ),
+            (LabelValue::NSFW_NEAR_PERFECT, AuthorLabel::NsfwNearPerfect),
+            (LabelValue::NSFW_AVATAR_IMAGE, AuthorLabel::NsfwAvatarImage),
+            (LabelValue::NSFW_BANNER_IMAGE, AuthorLabel::NsfwBannerImage),
+            (LabelValue::SPAM_HIGH_RECALL, AuthorLabel::SpamHighRecall),
+            (
+                LabelValue::ABUSIVE_HIGH_RECALL,
+                AuthorLabel::AbusiveHighRecall,
+            ),
+            (LabelValue::COMPROMISED, AuthorLabel::Compromised),
+            (LabelValue::READ_ONLY, AuthorLabel::ReadOnly),
+            (
+                LabelValue::IMPERSONATION_HIGH_PRECISION,
+                AuthorLabel::ImpersonationHighPrecision,
+            ),
+            (LabelValue::DO_NOT_AMPLIFY, AuthorLabel::DoNotAmplify),
+        ] {
+            let mut counts = LabelCounts::default();
+            let features = author_features(user_with_labels(&[thrift.0]), &mut counts);
+            assert!(features.user_labels.has_label(variant), "{thrift:?}");
+            assert_eq!((counts.mapped, counts.unmapped), (1, 0), "{thrift:?}");
+        }
+    }
+
+    #[test]
+    fn unmodelled_thrift_labels_drop_at_conversion() {
+        for unmodelled in [
+            LabelValue::EGREGIOUS_NSFW,
+            LabelValue::RECOMMENDATIONS_BLACKLIST,
+        ] {
+            let mut counts = LabelCounts::default();
+            let features = author_features(
+                user_with_labels(&[unmodelled.0, LabelValue::SPAM_HIGH_RECALL.0]),
+                &mut counts,
+            );
+            let mut expected = AuthorLabelSet::default();
+            expected.insert(AuthorLabel::SpamHighRecall);
+            assert_eq!(features.user_labels, expected, "{unmodelled:?}");
+            assert_eq!((counts.mapped, counts.unmapped), (1, 1), "{unmodelled:?}");
+        }
+    }
+
     #[test]
     fn error_and_missing_author_results_fail_open_but_stay_failed() {
         let (a10, a20) = (candidate(1, 10).author_id, candidate(2, 20).author_id);
@@ -264,8 +366,9 @@ mod tests {
             HashMap::from([(a10, Err(anyhow::anyhow!("gizmoduck unavailable")))]),
         );
 
+        let mut counts = LabelCounts::default();
         let by_tweet = user_results
-            .map(author_features)
+            .map(|user_result| author_features(user_result, &mut counts))
             .project([(TweetId(1), a10), (TweetId(2), a20)]);
 
         for tweet_id in [TweetId(1), TweetId(2)] {

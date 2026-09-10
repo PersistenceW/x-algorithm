@@ -131,7 +131,7 @@ impl<K: Eq + Hash, V> HydrationBatch<K, V> {
         }
     }
 
-    pub(crate) fn map<V2>(self, f: impl Fn(V) -> V2) -> HydrationBatch<K, V2> {
+    pub(crate) fn map<V2>(self, mut f: impl FnMut(V) -> V2) -> HydrationBatch<K, V2> {
         HydrationBatch {
             results: self
                 .results

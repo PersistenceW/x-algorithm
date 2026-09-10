@@ -44,6 +44,20 @@ pub(crate) fn fallback_cache_enabled() -> bool {
     parse_env_flag(std::env::var(ENV_FALLBACK_CACHE_ENABLED).ok().as_deref())
 }
 
+pub(crate) fn author_id_fallback_enabled() -> bool {
+    std::env::var("VF_AUTHOR_ID_FALLBACK_ENABLED")
+        .ok()
+        .is_none_or(|value| parse_env_flag(Some(&value)))
+}
+
+pub(crate) fn author_id_fallback_capacity() -> usize {
+    std::env::var("VF_AUTHOR_ID_FALLBACK_CAPACITY")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .filter(|capacity| *capacity > 0)
+        .unwrap_or(1_000_000)
+}
+
 pub(crate) fn cache_warm_enabled() -> bool {
     parse_env_flag(std::env::var(ENV_CACHE_WARM_ENABLED).ok().as_deref())
 }

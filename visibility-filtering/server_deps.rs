@@ -101,6 +101,13 @@ pub async fn build_prod_server(
     let fallback_cache_enabled = crate::config::fallback_cache_enabled();
     let fallback_cache = fallback_cache_enabled
         .then(crate::hydration::gizmoduck_hydrator::GizmoduckAuthorHydrator::fallback_cache);
+    let author_id_fallback_enabled = crate::config::author_id_fallback_enabled();
+    let author_id_fallback_capacity = crate::config::author_id_fallback_capacity();
+    let author_id_fallback_cache = author_id_fallback_enabled.then(|| {
+        crate::hydration::tes_hydrator::TesHydrator::author_id_fallback_cache(
+            author_id_fallback_capacity,
+        )
+    });
 
     let tes_client: Arc<
         dyn xai_core_entities::tweet_entity_service_client::TESClient + Send + Sync,
@@ -208,6 +215,7 @@ pub async fn build_prod_server(
         sg_client,
         safety_label_source.clone(),
         fallback_cache,
+        author_id_fallback_cache,
     );
     let gating_countries = Arc::new(crate::params::NsfwGatingCountries::starting_at_default());
     let fs_path = crate::config::fs_path();
@@ -222,6 +230,8 @@ pub async fn build_prod_server(
     info!(
         hydrator_count = 5,
         fallback_cache_enabled,
+        author_id_fallback_enabled,
+        author_id_fallback_capacity,
         home_rule_count,
         recommendations_rule_count,
         "VFServer initialized with prod clients"
@@ -319,7 +329,7 @@ async fn build_cache_warmer(
     Some(CacheWarmer::spawn(Arc::new(StratoWarmFetcher::new(grpc))))
 }
 
-const TES_STRATO_REQUEST_TIMEOUT_MS: u64 = 100;
+const TES_STRATO_REQUEST_TIMEOUT_MS: u64 = crate::hydration::HYDRATION_TIMEOUT.as_millis() as u64;
 
 fn tes_client_config(deterministic_aperture: bool) -> TESClientConfig {
     TESClientConfig {
@@ -333,7 +343,8 @@ fn tes_client_config(deterministic_aperture: bool) -> TESClientConfig {
     }
 }
 
-const GIZMODUCK_STRATO_REQUEST_TIMEOUT_MS: u64 = 80;
+const GIZMODUCK_STRATO_REQUEST_TIMEOUT_MS: u64 =
+    crate::hydration::HYDRATION_TIMEOUT.as_millis() as u64;
 
 fn gizmoduck_client_config(deterministic_aperture: bool) -> GizmoduckClientConfig {
     GizmoduckClientConfig {

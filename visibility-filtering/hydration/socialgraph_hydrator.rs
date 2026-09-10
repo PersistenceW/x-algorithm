@@ -7,7 +7,7 @@ use crate::rules::SafetyLevel;
 use std::sync::Arc;
 use std::time::Duration;
 
-const CLIENT_TIMEOUT: Duration = Duration::from_millis(150);
+const CLIENT_TIMEOUT: Duration = crate::hydration::HYDRATION_TIMEOUT;
 const CLIENT: &str = "socialgraph";
 
 pub struct SocialgraphHydrator {
@@ -71,6 +71,7 @@ mod tests {
                 request_author_id: Some(author_id),
             },
             &HashMap::<TweetId, PureCoreData>::new(),
+            &HashMap::new(),
         )
         .unwrap()
     }

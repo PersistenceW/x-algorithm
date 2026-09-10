@@ -1,5 +1,5 @@
 use crate::models::{
-    AuthorFeatures, ExclusiveContentFeatures, HydratedTweetCandidate, SafetyLabelType,
+    AuthorFeatures, AuthorLabel, ExclusiveContentFeatures, HydratedTweetCandidate, SafetyLabelType,
     TweetFeatures, VfAction, ViewerAge, ViewerAuthorRelationship, ViewerFeatures,
 };
 use crate::rules::fixtures::{
@@ -11,7 +11,6 @@ use xai_core_entities::entities::{EditControl, EditControlInitial, TakedownReaso
 use xai_visibility_filtering::models::{
     Action, DropReason, FilteredReason, SafetyResult, SafetyResultReason,
 };
-use xai_x_thrift::user_labels::LabelValue;
 use SafetyLevel::{FilterAll, TimelineHome, TimelineHomeRecommendations};
 use VfAction::{Allow, Drop, Interstitial};
 
@@ -129,11 +128,11 @@ fn labeled_media(label: SafetyLabelType) -> HydratedTweetCandidate {
     candidate().with_label(label).with_media().build()
 }
 
-fn user_labeled(label: LabelValue) -> HydratedTweetCandidate {
+fn user_labeled(label: AuthorLabel) -> HydratedTweetCandidate {
     candidate().with_author_user_label(label).build()
 }
 
-fn user_labeled_follower(label: LabelValue) -> HydratedTweetCandidate {
+fn user_labeled_follower(label: AuthorLabel) -> HydratedTweetCandidate {
     candidate().with_author_user_label(label).followed().build()
 }
 
@@ -252,38 +251,6 @@ fn baseline_cases() -> Vec<Case> {
             level: TimelineHomeRecommendations,
             viewer: viewer(VIEWER_ID),
             candidate: labeled(SafetyLabelType::EGREGIOUS_NSFW),
-            expected_action: Allow,
-            expected_decided_by: None,
-        },
-        Case {
-            name: "home_allows_egregious_nsfw_user_label",
-            level: TimelineHome,
-            viewer: viewer(VIEWER_ID),
-            candidate: user_labeled(LabelValue::EGREGIOUS_NSFW),
-            expected_action: Allow,
-            expected_decided_by: None,
-        },
-        Case {
-            name: "recommendations_allow_egregious_nsfw_user_label",
-            level: TimelineHomeRecommendations,
-            viewer: viewer(VIEWER_ID),
-            candidate: user_labeled(LabelValue::EGREGIOUS_NSFW),
-            expected_action: Allow,
-            expected_decided_by: None,
-        },
-        Case {
-            name: "home_allows_recommendations_blacklist_user_label",
-            level: TimelineHome,
-            viewer: viewer(VIEWER_ID),
-            candidate: user_labeled(LabelValue::RECOMMENDATIONS_BLACKLIST),
-            expected_action: Allow,
-            expected_decided_by: None,
-        },
-        Case {
-            name: "recommendations_allow_recommendations_blacklist_user_label",
-            level: TimelineHomeRecommendations,
-            viewer: viewer(VIEWER_ID),
-            candidate: user_labeled(LabelValue::RECOMMENDATIONS_BLACKLIST),
             expected_action: Allow,
             expected_decided_by: None,
         },
@@ -968,7 +935,7 @@ fn oon_user_label_cases() -> Vec<Case> {
             name: "nsfw_high_recall_user_label_drops_oon",
             level: TimelineHomeRecommendations,
             viewer: viewer(VIEWER_ID),
-            candidate: user_labeled(LabelValue::NSFW_HIGH_RECALL),
+            candidate: user_labeled(AuthorLabel::NsfwHighRecall),
             expected_action: Drop(FilteredReason::UnspecifiedReason),
             expected_decided_by: Some("NsfwHighRecallUserLabelRule"),
         },
@@ -976,7 +943,7 @@ fn oon_user_label_cases() -> Vec<Case> {
             name: "nsfw_high_recall_user_label_allows_in_network",
             level: TimelineHome,
             viewer: viewer(VIEWER_ID),
-            candidate: user_labeled(LabelValue::NSFW_HIGH_RECALL),
+            candidate: user_labeled(AuthorLabel::NsfwHighRecall),
             expected_action: Allow,
             expected_decided_by: None,
         },
@@ -984,7 +951,7 @@ fn oon_user_label_cases() -> Vec<Case> {
             name: "nsfw_high_recall_user_label_allows_self_view_oon",
             level: TimelineHomeRecommendations,
             viewer: author_viewer(),
-            candidate: user_labeled(LabelValue::NSFW_HIGH_RECALL),
+            candidate: user_labeled(AuthorLabel::NsfwHighRecall),
             expected_action: Allow,
             expected_decided_by: None,
         },
@@ -992,7 +959,7 @@ fn oon_user_label_cases() -> Vec<Case> {
             name: "nsfw_high_precision_user_label_drops_oon",
             level: TimelineHomeRecommendations,
             viewer: viewer(VIEWER_ID),
-            candidate: user_labeled(LabelValue::NSFW_HIGH_PRECISION),
+            candidate: user_labeled(AuthorLabel::NsfwHighPrecision),
             expected_action: Drop(FilteredReason::UnspecifiedReason),
             expected_decided_by: Some("NsfwHighPrecisionUserLabelRule"),
         },
@@ -1000,7 +967,7 @@ fn oon_user_label_cases() -> Vec<Case> {
             name: "spam_high_recall_user_label_drops_oon",
             level: TimelineHomeRecommendations,
             viewer: viewer(VIEWER_ID),
-            candidate: user_labeled(LabelValue::SPAM_HIGH_RECALL),
+            candidate: user_labeled(AuthorLabel::SpamHighRecall),
             expected_action: Drop(FilteredReason::UnspecifiedReason),
             expected_decided_by: Some("SpamHighRecallUserLabelRule"),
         },
@@ -1008,7 +975,7 @@ fn oon_user_label_cases() -> Vec<Case> {
             name: "compromised_user_label_drops_oon",
             level: TimelineHomeRecommendations,
             viewer: viewer(VIEWER_ID),
-            candidate: user_labeled(LabelValue::COMPROMISED),
+            candidate: user_labeled(AuthorLabel::Compromised),
             expected_action: Drop(FilteredReason::UnspecifiedReason),
             expected_decided_by: Some("CompromisedUserLabelRule"),
         },
@@ -1016,7 +983,7 @@ fn oon_user_label_cases() -> Vec<Case> {
             name: "read_only_user_label_drops_oon",
             level: TimelineHomeRecommendations,
             viewer: viewer(VIEWER_ID),
-            candidate: user_labeled(LabelValue::READ_ONLY),
+            candidate: user_labeled(AuthorLabel::ReadOnly),
             expected_action: Drop(FilteredReason::UnspecifiedReason),
             expected_decided_by: Some("ReadOnlyUserLabelRule"),
         },
@@ -1024,7 +991,7 @@ fn oon_user_label_cases() -> Vec<Case> {
             name: "impersonation_user_label_drops_oon",
             level: TimelineHomeRecommendations,
             viewer: viewer(VIEWER_ID),
-            candidate: user_labeled(LabelValue::IMPERSONATION_HIGH_PRECISION),
+            candidate: user_labeled(AuthorLabel::ImpersonationHighPrecision),
             expected_action: Drop(FilteredReason::UnspecifiedReason),
             expected_decided_by: Some("ImpersonationHighPrecisionUserLabelRule"),
         },
@@ -1032,7 +999,7 @@ fn oon_user_label_cases() -> Vec<Case> {
             name: "nsfw_avatar_user_label_drops_oon",
             level: TimelineHomeRecommendations,
             viewer: viewer(VIEWER_ID),
-            candidate: user_labeled(LabelValue::NSFW_AVATAR_IMAGE),
+            candidate: user_labeled(AuthorLabel::NsfwAvatarImage),
             expected_action: Drop(FilteredReason::UnspecifiedReason),
             expected_decided_by: Some("NsfwAvatarImageRule"),
         },
@@ -1040,7 +1007,7 @@ fn oon_user_label_cases() -> Vec<Case> {
             name: "nsfw_banner_user_label_drops_oon",
             level: TimelineHomeRecommendations,
             viewer: viewer(VIEWER_ID),
-            candidate: user_labeled(LabelValue::NSFW_BANNER_IMAGE),
+            candidate: user_labeled(AuthorLabel::NsfwBannerImage),
             expected_action: Drop(FilteredReason::UnspecifiedReason),
             expected_decided_by: Some("NsfwBannerImageRule"),
         },
@@ -1048,7 +1015,7 @@ fn oon_user_label_cases() -> Vec<Case> {
             name: "abusive_high_recall_user_label_drops_non_follower_oon",
             level: TimelineHomeRecommendations,
             viewer: viewer(VIEWER_ID),
-            candidate: user_labeled(LabelValue::ABUSIVE_HIGH_RECALL),
+            candidate: user_labeled(AuthorLabel::AbusiveHighRecall),
             expected_action: Drop(FilteredReason::UnspecifiedReason),
             expected_decided_by: Some("AbusiveHighRecallRule"),
         },
@@ -1056,7 +1023,7 @@ fn oon_user_label_cases() -> Vec<Case> {
             name: "abusive_high_recall_user_label_allows_follower_oon",
             level: TimelineHomeRecommendations,
             viewer: viewer(VIEWER_ID),
-            candidate: user_labeled_follower(LabelValue::ABUSIVE_HIGH_RECALL),
+            candidate: user_labeled_follower(AuthorLabel::AbusiveHighRecall),
             expected_action: Allow,
             expected_decided_by: None,
         },
@@ -1064,7 +1031,7 @@ fn oon_user_label_cases() -> Vec<Case> {
             name: "nsfw_near_perfect_user_label_drops_oon",
             level: TimelineHomeRecommendations,
             viewer: viewer(VIEWER_ID),
-            candidate: user_labeled(LabelValue::NSFW_NEAR_PERFECT),
+            candidate: user_labeled(AuthorLabel::NsfwNearPerfect),
             expected_action: Drop(FilteredReason::UnspecifiedReason),
             expected_decided_by: Some("NsfwNearPerfectAuthorRule"),
         },
@@ -1072,7 +1039,7 @@ fn oon_user_label_cases() -> Vec<Case> {
             name: "nsfw_near_perfect_user_label_allows_in_network",
             level: TimelineHome,
             viewer: viewer(VIEWER_ID),
-            candidate: user_labeled(LabelValue::NSFW_NEAR_PERFECT),
+            candidate: user_labeled(AuthorLabel::NsfwNearPerfect),
             expected_action: Allow,
             expected_decided_by: None,
         },
@@ -1080,7 +1047,7 @@ fn oon_user_label_cases() -> Vec<Case> {
             name: "do_not_amplify_user_label_drops_non_follower_oon",
             level: TimelineHomeRecommendations,
             viewer: viewer(VIEWER_ID),
-            candidate: user_labeled(LabelValue::DO_NOT_AMPLIFY),
+            candidate: user_labeled(AuthorLabel::DoNotAmplify),
             expected_action: Drop(FilteredReason::UnspecifiedReason),
             expected_decided_by: Some("DoNotAmplifyNonFollowerRule"),
         },
@@ -1088,7 +1055,7 @@ fn oon_user_label_cases() -> Vec<Case> {
             name: "do_not_amplify_user_label_allows_follower_oon",
             level: TimelineHomeRecommendations,
             viewer: viewer(VIEWER_ID),
-            candidate: user_labeled_follower(LabelValue::DO_NOT_AMPLIFY),
+            candidate: user_labeled_follower(AuthorLabel::DoNotAmplify),
             expected_action: Allow,
             expected_decided_by: None,
         },

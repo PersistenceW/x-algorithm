@@ -1,8 +1,8 @@
+use crate::models::AuthorLabel;
 use crate::models::VfAction;
 use crate::rules::rule_spec::RuleSpec;
 use crate::rules::RuleContext;
 use xai_visibility_filtering::models::FilteredReason;
-use xai_x_thrift::user_labels::LabelValue;
 
 pub(super) const AUTHOR_STATE_DROPS: &[RuleSpec] = &[
     RuleSpec::Author {
@@ -55,67 +55,67 @@ pub(super) const OON_NSFW_AUTHOR_DROPS: &[RuleSpec] = &[
 pub(super) const OON_USER_LABEL_DROPS: &[RuleSpec] = &[
     RuleSpec::Author {
         name: "NsfwHighRecallUserLabelRule",
-        when: |author| author.has_user_label(LabelValue::NSFW_HIGH_RECALL),
+        when: |author| author.has_user_label(AuthorLabel::NsfwHighRecall),
         reason: FilteredReason::UnspecifiedReason,
         exempt_follower: false,
     },
     RuleSpec::Author {
         name: "NsfwHighPrecisionUserLabelRule",
-        when: |author| author.has_user_label(LabelValue::NSFW_HIGH_PRECISION),
+        when: |author| author.has_user_label(AuthorLabel::NsfwHighPrecision),
         reason: FilteredReason::UnspecifiedReason,
         exempt_follower: false,
     },
     RuleSpec::Author {
         name: "SpamHighRecallUserLabelRule",
-        when: |author| author.has_user_label(LabelValue::SPAM_HIGH_RECALL),
+        when: |author| author.has_user_label(AuthorLabel::SpamHighRecall),
         reason: FilteredReason::UnspecifiedReason,
         exempt_follower: false,
     },
     RuleSpec::Author {
         name: "CompromisedUserLabelRule",
-        when: |author| author.has_user_label(LabelValue::COMPROMISED),
+        when: |author| author.has_user_label(AuthorLabel::Compromised),
         reason: FilteredReason::UnspecifiedReason,
         exempt_follower: false,
     },
     RuleSpec::Author {
         name: "ReadOnlyUserLabelRule",
-        when: |author| author.has_user_label(LabelValue::READ_ONLY),
+        when: |author| author.has_user_label(AuthorLabel::ReadOnly),
         reason: FilteredReason::UnspecifiedReason,
         exempt_follower: false,
     },
     RuleSpec::Author {
         name: "ImpersonationHighPrecisionUserLabelRule",
-        when: |author| author.has_user_label(LabelValue::IMPERSONATION_HIGH_PRECISION),
+        when: |author| author.has_user_label(AuthorLabel::ImpersonationHighPrecision),
         reason: FilteredReason::UnspecifiedReason,
         exempt_follower: false,
     },
     RuleSpec::Author {
         name: "NsfwAvatarImageRule",
-        when: |author| author.has_user_label(LabelValue::NSFW_AVATAR_IMAGE),
+        when: |author| author.has_user_label(AuthorLabel::NsfwAvatarImage),
         reason: FilteredReason::UnspecifiedReason,
         exempt_follower: false,
     },
     RuleSpec::Author {
         name: "NsfwBannerImageRule",
-        when: |author| author.has_user_label(LabelValue::NSFW_BANNER_IMAGE),
+        when: |author| author.has_user_label(AuthorLabel::NsfwBannerImage),
         reason: FilteredReason::UnspecifiedReason,
         exempt_follower: false,
     },
     RuleSpec::Author {
         name: "AbusiveHighRecallRule",
-        when: |author| author.has_user_label(LabelValue::ABUSIVE_HIGH_RECALL),
+        when: |author| author.has_user_label(AuthorLabel::AbusiveHighRecall),
         reason: FilteredReason::UnspecifiedReason,
         exempt_follower: true,
     },
     RuleSpec::Author {
         name: "NsfwNearPerfectAuthorRule",
-        when: |author| author.has_user_label(LabelValue::NSFW_NEAR_PERFECT),
+        when: |author| author.has_user_label(AuthorLabel::NsfwNearPerfect),
         reason: FilteredReason::UnspecifiedReason,
         exempt_follower: false,
     },
     RuleSpec::Author {
         name: "DoNotAmplifyNonFollowerRule",
-        when: |author| author.has_user_label(LabelValue::DO_NOT_AMPLIFY),
+        when: |author| author.has_user_label(AuthorLabel::DoNotAmplify),
         reason: FilteredReason::UnspecifiedReason,
         exempt_follower: true,
     },
@@ -223,19 +223,19 @@ mod tests {
         }
     }
 
-    fn trigger_user_label(name: &str) -> LabelValue {
+    fn trigger_user_label(name: &str) -> AuthorLabel {
         match name {
-            "NsfwHighRecallUserLabelRule" => LabelValue::NSFW_HIGH_RECALL,
-            "NsfwHighPrecisionUserLabelRule" => LabelValue::NSFW_HIGH_PRECISION,
-            "SpamHighRecallUserLabelRule" => LabelValue::SPAM_HIGH_RECALL,
-            "CompromisedUserLabelRule" => LabelValue::COMPROMISED,
-            "ReadOnlyUserLabelRule" => LabelValue::READ_ONLY,
-            "ImpersonationHighPrecisionUserLabelRule" => LabelValue::IMPERSONATION_HIGH_PRECISION,
-            "NsfwAvatarImageRule" => LabelValue::NSFW_AVATAR_IMAGE,
-            "NsfwBannerImageRule" => LabelValue::NSFW_BANNER_IMAGE,
-            "AbusiveHighRecallRule" => LabelValue::ABUSIVE_HIGH_RECALL,
-            "NsfwNearPerfectAuthorRule" => LabelValue::NSFW_NEAR_PERFECT,
-            "DoNotAmplifyNonFollowerRule" => LabelValue::DO_NOT_AMPLIFY,
+            "NsfwHighRecallUserLabelRule" => AuthorLabel::NsfwHighRecall,
+            "NsfwHighPrecisionUserLabelRule" => AuthorLabel::NsfwHighPrecision,
+            "SpamHighRecallUserLabelRule" => AuthorLabel::SpamHighRecall,
+            "CompromisedUserLabelRule" => AuthorLabel::Compromised,
+            "ReadOnlyUserLabelRule" => AuthorLabel::ReadOnly,
+            "ImpersonationHighPrecisionUserLabelRule" => AuthorLabel::ImpersonationHighPrecision,
+            "NsfwAvatarImageRule" => AuthorLabel::NsfwAvatarImage,
+            "NsfwBannerImageRule" => AuthorLabel::NsfwBannerImage,
+            "AbusiveHighRecallRule" => AuthorLabel::AbusiveHighRecall,
+            "NsfwNearPerfectAuthorRule" => AuthorLabel::NsfwNearPerfect,
+            "DoNotAmplifyNonFollowerRule" => AuthorLabel::DoNotAmplify,
             _ => panic!("no trigger user label for rule {name}"),
         }
     }
@@ -268,9 +268,12 @@ mod tests {
             } else {
                 assert_drops(spec, &viewer(VIEWER_ID), &followed, reason);
             }
-            let unrelated = candidate()
-                .with_author_user_label(LabelValue::LOW_QUALITY)
-                .build();
+            let nonmatching = if trigger_user_label(name) == AuthorLabel::Compromised {
+                AuthorLabel::ReadOnly
+            } else {
+                AuthorLabel::Compromised
+            };
+            let unrelated = candidate().with_author_user_label(nonmatching).build();
             assert_allows(spec, &viewer(VIEWER_ID), &unrelated);
             assert_allows(spec, &author_viewer(), &firing);
         }

@@ -3,6 +3,7 @@ use crate::models::{RawCandidate, TweetId};
 use crate::rules::metrics as ft_metrics;
 use crate::rules::{RuleEngine, SafetyLevel, Verdict};
 use std::collections::HashMap;
+use std::time::Instant;
 use xai_visibility_filtering_proto as vf_pb;
 
 pub struct FilterRequest {
@@ -36,6 +37,7 @@ impl FilterTweets {
     }
 
     pub async fn run(&self, request: FilterRequest) -> FilterResponse {
+        let started = Instant::now();
         let hydration = self
             .hydration_pipeline
             .hydrate(HydrationRequest::new(
@@ -45,6 +47,8 @@ impl FilterTweets {
                 request.safety_level,
             ))
             .await;
+        let hydrated_at = Instant::now();
+        ft_metrics::record_phase("hydration", hydrated_at - started);
         let HydrationOutput {
             viewer_features,
             candidates: hydrated_candidates,
@@ -83,6 +87,7 @@ impl FilterTweets {
             request.safety_level,
             outcomes.iter().map(|outcome| &outcome.verdict),
         );
+        ft_metrics::record_phase("post_hydration", hydrated_at.elapsed());
 
         FilterResponse { outcomes }
     }
@@ -153,7 +158,7 @@ pub(crate) mod test_support {
         ))));
 
         FilterTweets::new(
-            HydrationPipeline::new(tes, gizmoduck, socialgraph, labels, None),
+            HydrationPipeline::new(tes, gizmoduck, socialgraph, labels, None, None),
             RuleEngine::for_tests(),
         )
     }

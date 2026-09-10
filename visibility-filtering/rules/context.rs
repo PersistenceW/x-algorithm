@@ -1,7 +1,6 @@
-use crate::models::{HydratedTweetCandidate, SafetyLabelType, ViewerFeatures};
+use crate::models::{AuthorLabel, HydratedTweetCandidate, SafetyLabelType, ViewerFeatures};
 use crate::params::NsfwGatingCountries;
 use xai_core_entities::entities::TakedownReason;
-use xai_x_thrift::user_labels::LabelValue;
 
 pub struct RuleContext<'a> {
     viewer: &'a ViewerFeatures,
@@ -236,7 +235,7 @@ impl AuthorPredicates<'_> {
     }
 
     #[inline]
-    pub fn has_user_label(&self, label: LabelValue) -> bool {
+    pub fn has_user_label(&self, label: AuthorLabel) -> bool {
         self.ctx.candidate.author_has_user_label(label)
     }
 }

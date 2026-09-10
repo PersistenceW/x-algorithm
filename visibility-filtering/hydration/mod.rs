@@ -25,11 +25,14 @@ use safety_label_hydrator::{SafetyLabelHydration, SafetyLabelHydrator};
 use socialgraph_hydrator::SocialgraphHydrator;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tes_hydrator::TesHydrator;
+use std::time::Duration;
+use tes_hydrator::{AuthorIdFallbackCache, TesHydrator};
 use viewer_hydrator::ViewerHydrator;
 use xai_core_entities::gizmoduck_client::GizmoduckClient;
 use xai_core_entities::tweet_entity_service_client::TESClient;
 use xai_visibility_filtering_proto as vf_pb;
+
+pub(crate) const HYDRATION_TIMEOUT: Duration = Duration::from_millis(390);
 
 pub(crate) struct HydrationRequest<'a> {
     viewer_id: Option<u64>,
@@ -135,14 +138,13 @@ impl HydrationPipeline {
         socialgraph_client: Arc<dyn SocialgraphClient + Send + Sync>,
         safety_label_source: Arc<SafetyLabelSource>,
         fallback_cache: Option<FallbackCache<AuthorId, AuthorFeatures>>,
+        author_id_fallback_cache: Option<AuthorIdFallbackCache>,
     ) -> Self {
         Self {
             viewer_hydrator: ViewerHydrator {
                 gizmoduck_client: gizmoduck_client.clone(),
             },
-            tes_hydrator: TesHydrator {
-                tes_client: tes_client.clone(),
-            },
+            tes_hydrator: TesHydrator::new(tes_client.clone(), author_id_fallback_cache),
             gizmoduck_author_hydrator: GizmoduckAuthorHydrator::new(
                 GizmoduckLookup::new(gizmoduck_client),
                 fallback_cache,
@@ -183,18 +185,22 @@ impl HydrationPipeline {
             };
 
             let author_hop = async {
-                let core_datas = self
+                let pure_core = self
                     .tes_hydrator
                     .fetch_pure_core(&tweet_ids, safety_level)
                     .await;
-                let candidates = resolve_candidates(raw_candidates, &core_datas);
+                let candidates = resolve_candidates(
+                    raw_candidates,
+                    &pure_core.core,
+                    &pure_core.recovered_authors,
+                );
                 let (author_features, relationships) = tokio::join!(
                     self.gizmoduck_author_hydrator
                         .hydrate(&candidates, safety_level),
                     self.socialgraph_hydrator
                         .hydrate(&candidates, viewer, safety_level),
                 );
-                (core_datas, candidates, author_features, relationships)
+                (pure_core.core, candidates, author_features, relationships)
             };
 
             let (
@@ -254,7 +260,8 @@ mod tests {
 
     #[test]
     fn assemble_handles_mismatched_cardinality_without_mispairing() {
-        let resolved = resolve_candidate(&raw(2, None), &core(2, 200)).expect("tweet 2 resolves");
+        let resolved = resolve_candidate(&raw(2, None), &core(2, 200), &HashMap::new())
+            .expect("tweet 2 resolves");
         let candidates = vec![resolved];
 
         let results = CandidateFeatures {
@@ -321,7 +328,12 @@ mod tests {
         let candidates: Vec<_> = [(1, 10), (2, 10), (3, 20)]
             .into_iter()
             .map(|(tweet_id, author_id)| {
-                resolve_candidate(&raw(tweet_id, Some(author_id)), &HashMap::new()).unwrap()
+                resolve_candidate(
+                    &raw(tweet_id, Some(author_id)),
+                    &HashMap::new(),
+                    &HashMap::new(),
+                )
+                .unwrap()
             })
             .collect();
 

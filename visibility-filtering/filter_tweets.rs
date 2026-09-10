@@ -4,6 +4,8 @@ use crate::reference_compare::{ReferenceCompareHarness, TweetVerdict};
 use crate::rules::metrics::{self as ft_metrics, RequestMetricsGuard};
 use crate::rules::SafetyLevel;
 use std::sync::Arc;
+use std::time::Duration;
+use tonic::metadata::MetadataMap;
 use tonic::{Request, Response, Status};
 use xai_visibility_filtering_proto as vf_pb;
 
@@ -28,6 +30,7 @@ impl FilterTweetsEndpoint {
         request: Request<vf_pb::VisibilityFilterRequest>,
     ) -> Result<Response<vf_pb::VisibilityFilterResponse>, Status> {
         let request_metrics = RequestMetricsGuard::new();
+        let grpc_timeout = parse_grpc_timeout(request.metadata());
         let req = request.into_inner();
         ft_metrics::record_batch_size(req.tweets.len());
         let viewer_id = normalize_viewer_id(req.viewer_id);
@@ -87,6 +90,7 @@ impl FilterTweetsEndpoint {
             .map(to_visibility_result)
             .collect();
 
+        request_metrics.record_deadline(grpc_timeout);
         request_metrics.mark_success();
         Ok(Response::new(vf_pb::VisibilityFilterResponse { results }))
     }
@@ -94,6 +98,25 @@ impl FilterTweetsEndpoint {
 
 fn normalize_viewer_id(raw: Option<u64>) -> Option<u64> {
     raw.filter(|&id| id as i64 > 0)
+}
+
+fn parse_grpc_timeout(metadata: &MetadataMap) -> Option<Duration> {
+    let raw = metadata.get("grpc-timeout")?.to_str().ok()?;
+    let (digits, unit) = raw.split_at(raw.len().checked_sub(1)?);
+    if digits.is_empty() || digits.len() > 8 || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let value: u64 = digits.parse().ok()?;
+    let nanos_per_unit = match unit {
+        "H" => 3_600_000_000_000,
+        "M" => 60_000_000_000,
+        "S" => 1_000_000_000,
+        "m" => 1_000_000,
+        "u" => 1_000,
+        "n" => 1,
+        _ => return None,
+    };
+    Some(Duration::from_nanos(value.checked_mul(nanos_per_unit)?))
 }
 
 fn to_visibility_result(outcome: FilterOutcome) -> vf_pb::TweetVisibilityResult {
@@ -161,6 +184,25 @@ mod tests {
         let logged_out = gizmoduck_calls(None).await;
         assert_eq!(gizmoduck_calls(Some(0)).await, logged_out);
         assert_eq!(gizmoduck_calls(Some(42)).await, logged_out + 1);
+    }
+
+    #[test]
+    fn parse_grpc_timeout_units_and_garbage() {
+        let parsed = |value: &str| {
+            let mut metadata = MetadataMap::new();
+            metadata.insert("grpc-timeout", value.parse().unwrap());
+            parse_grpc_timeout(&metadata)
+        };
+        assert_eq!(parsed("400m"), Some(Duration::from_millis(400)));
+        assert_eq!(parsed("1S"), Some(Duration::from_secs(1)));
+        assert_eq!(parsed("2M"), Some(Duration::from_secs(120)));
+        assert_eq!(parsed("500u"), Some(Duration::from_micros(500)));
+        assert_eq!(parsed("400"), None);
+        assert_eq!(parsed("m"), None);
+        assert_eq!(parsed("400x"), None);
+        assert_eq!(parsed("+400m"), None);
+        assert_eq!(parsed("123456789m"), None);
+        assert_eq!(parse_grpc_timeout(&MetadataMap::new()), None);
     }
 
     #[test]

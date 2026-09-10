@@ -35,7 +35,11 @@ where
         let shard_count = CACHE_SHARDS.min(capacity.max(1));
         let shard_capacity = capacity.div_ceil(shard_count);
         let shards = (0..shard_count)
-            .map(|_| Mutex::new(Cache::<K, CacheEntry<V>>::new(shard_capacity)))
+            .map(|_| {
+                let mut shard = Cache::<K, CacheEntry<V>>::new(shard_capacity);
+                shard.reserve(shard_capacity);
+                Mutex::new(shard)
+            })
             .collect();
         Self {
             facet,

@@ -20,7 +20,7 @@ from video_tools.image import (
 
 logger = logging.getLogger(__name__)
 
-_MOTION_REVEAL_DENSE_SAMPLES = 32
+_MOTION_REVEAL_DENSE_SAMPLES = 48
 
 
 class VideoFrame(BaseModel):

@@ -1,5 +1,5 @@
 use crate::models::query::{RequestType, ScoredPostsQuery};
-use crate::params::{EnableAdsBrandSafetyVerdictV2, EnableAdsInjectionLogging};
+use crate::params::{AdsBlenderType, EnableAdsBrandSafetyVerdictV2, EnableAdsInjectionLogging};
 use prost::Message;
 use std::sync::Arc;
 use tonic::async_trait;
@@ -102,6 +102,10 @@ impl SideEffect<ScoredPostsQuery, FeedItem> for AdsInjectionLoggingSideEffect {
                 .map(|b| format!("{}:{}", b.experiment, b.bucket))
                 .unwrap_or_default(),
             product_surface: product_surface.into(),
+            ads_blender: match query.request_type {
+                RequestType::Following => "following".to_string(),
+                _ => query.params.get(AdsBlenderType),
+            },
         };
 
         let bytes = timeline.encode_to_vec();

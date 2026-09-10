@@ -1,12 +1,11 @@
 use crate::models::{
-    AuthorFeatures, HydratedTweetCandidate, NsfwFeature, SafetyLabelMap, SafetyLabelType,
-    TweetFeatures, UserLabelSet, VfAction, Viewer, ViewerAuthorRelationship, ViewerFeatures,
+    AuthorFeatures, AuthorLabel, HydratedTweetCandidate, NsfwFeature, SafetyLabelMap,
+    SafetyLabelType, TweetFeatures, VfAction, Viewer, ViewerAuthorRelationship, ViewerFeatures,
 };
 use crate::rules::rule_spec::RuleSpec;
 use crate::rules::test_context;
 use std::collections::HashSet;
 use xai_visibility_filtering::models::FilteredReason;
-use xai_x_thrift::user_labels::LabelValue;
 
 const TWEET_ID: u64 = 1;
 const AUTHOR_ID: u64 = 100;
@@ -72,14 +71,12 @@ pub(crate) fn candidate() -> CandidateBuilder {
             ..Default::default()
         },
         labels: HashSet::new(),
-        user_labels: HashSet::new(),
     }
 }
 
 pub(crate) struct CandidateBuilder {
     candidate: HydratedTweetCandidate,
     labels: HashSet<SafetyLabelType>,
-    user_labels: HashSet<LabelValue>,
 }
 
 impl CandidateBuilder {
@@ -98,8 +95,8 @@ impl CandidateBuilder {
         self
     }
 
-    pub(crate) fn with_author_user_label(mut self, label: LabelValue) -> Self {
-        self.user_labels.insert(label);
+    pub(crate) fn with_author_user_label(mut self, label: AuthorLabel) -> Self {
+        self.candidate.author_features.user_labels.insert(label);
         self
     }
 
@@ -137,9 +134,6 @@ impl CandidateBuilder {
         let mut candidate = self.candidate;
         if !self.labels.is_empty() {
             candidate.safety_labels = SafetyLabelMap::new(self.labels);
-        }
-        if !self.user_labels.is_empty() {
-            candidate.author_features.user_labels = UserLabelSet::new(self.user_labels);
         }
         candidate
     }
